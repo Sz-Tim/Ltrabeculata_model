@@ -1,0 +1,25 @@
+---
+title: "Lesonia trabeculata data"
+author: "SUBELAB"
+date: "26 de agosto de 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+1. IFOP Database
+
+
+
+```{r}
+allkelp_IFOP<- read_csv("Quad_IFOP_2018-21.csv") %>% mutate(Site=as.factor(Site),Management=as.factor(Management),Group=as.factor(Group),Group=as.factor(Group),Species=as.factor(Species)) %>% filter(Species=="Lessonia trabeculata")
+summary(allkelp_IFOP)
+
+
+
+```
+
