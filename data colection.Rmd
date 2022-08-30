@@ -107,13 +107,14 @@ summary(NERC_Kelp_Morpho_ph)
   
 ```{r}
 Nerc_Allometry= read.csv("Morfo_DW_C.csv")
-summary(Nerc_Allometry)
+summary(Nerc_Allometry) 
 ```
 
 3.2 Growth and survival monitoring
    The growth of kelp after a harvesting event have been monitored in tagged recruits every 6 month in patches of NERC experiment. When kelp disapeared the holdfast value are 0.
    
 ```{r}
-Growth<- read.csv("Growth&Survival.csv")
+Growth_Surv<- read.csv("Growth&Survival.csv")
+summary(Growth_Surv)
 ```
 
