@@ -8,18 +8,112 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(kableExtra)
 ```
 
 
 1. IFOP Database
 
+1.1. Sites & georeferences by year
+```{r}
+coord<-read.csv("coordenadas.csv")
+ kable(coord) %>% kable_styling(bootstrap_options = c("striped", 
+    "hover", "condensed"), full_width = F)
+unique(coord$Site)
+```
+1.2. Databases
+This project evaluate the kelp forest state in TURF sites (also called AMERB in Spanish) evaluating kelp density, kelp morphology, herbivores and fish communities. 
+
+  - Ifop_Kelp_Density= To evaluate kelp density, 7-10 transects of 100x2 meters were monitored in each site. The transect is divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
+
+```{r}
+IFOP_Kelp_Density<- read_csv("IFOP_Kelp_density.csv") %>% select (c(1:8,13:18,21))%>% mutate(Site=as.factor(Site),Management=as.factor(Management),Species=as.factor(Species), Stage=as.factor(Stage)) %>% filter(Species=="Lessonia trabeculata")
+summary(IFOP_Kelp_Density)
+
+```
+
+
+  - Ifop_Kelp_Morpho= In 3 of the transects, the morphology (holdfast size, no. stipes, total lenght and frondosity) and herbivores density are quantified in 1m^2 quadrants.Between 7-10 quadrants were spread equidistant across the transect.
 
 
 ```{r}
-allkelp_IFOP<- read_csv("Quad_IFOP_2018-21.csv") %>% mutate(Site=as.factor(Site),Management=as.factor(Management),Group=as.factor(Group),Group=as.factor(Group),Species=as.factor(Species)) %>% filter(Species=="Lessonia trabeculata")
-summary(allkelp_IFOP)
+#Only kelp information
+IFOP_Kelp_Morpho<- read_csv("IFOP_Kelp_Morphology.csv") %>% select(c(1:9,11:13,15:19)) %>%  mutate(Site=as.factor(Site),Management=as.factor(Management),Group=as.factor(Group),Species=as.factor(Species)) %>% filter(Group=="Macroalga", Species =="Lessonia trabeculata")
+summary(IFOP_Kelp_Morpho)
 
 
+```
+  
+  - Ifop_allometry= In 2018, ~30 algae were extracted from 6 of 8 monitored sites, and total weight, holdfast diameter, holdfast perimeter, number of stipes, and total lenght were measured.
+  
+```{r}
+IFOP_allometry = read.csv("IFOP_allometry.csv") %>% select(-16)
+summary(IFOP_allometry)
+```
+  
 
+
+2. NERC Database
+
+A harvesting experiment was carried out in the North, Center-North and Center of Chilean coast, comparing Open Access Areas (OA) and Management Areas (TURF). An initial monitoring was carried out, prior to the extraction (Baseline- bl) and a monitoring after 12, 18, 24 and 32 months (MAE in databases).
+
+2.1 Baseline : Same protocol than IFOP
+    - NERC_Kelp_Density_bl= 7-10 transects of 100x2 meters were divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
+    - NERC_Kelp_Morpho_bl= In 3 of the transects, the morphology and herbivores density were quantified in 1m^2 quadrants.Between 7-10 quadrants were spread equidistant across the transect.
+
+```{r}
+NERC_Kelp_Density_bl= read.csv("Kelp_transect.csv")
+summary(NERC_kelpdensity_bl)
+
+NERC_Kelp_Morpho_bl= read.csv("Quads_baseline.csv") %>% filter(Species=="Lessonia trabeculata")
+summary(NERC_Kelp_Morpho_bl)
+```
+
+
+2.2. Post-harvesting Monitoring : 
+  - NERC_Kelp_Density_ph
+  - NERC_Kelp_Morpho_ph
+  
+```{r}
+NERC_Kelp_Density_ph=read.csv("Patches_quad.csv")
+summary(NERC_Kelp_Density_ph)
+NERC_Kelp_Morpho_ph=read.csv("Patches_Morphology.csv")
+summary(NERC_Kelp_Morpho_ph)
+```
+  
+
+3. Nerc_Cata's thesis
+
+3.1 Allometry
+  - 12-19 kelp were harvested in NERC sites, covering all the size range.
+  - Weight and morphology were measured, and the relation FW:DW and Carbon content was also estimated. 
+  - Measurements in Stipes (First_bif, Diam_stipes, LT_stipes, Dichot_stipes) are a mean between 3  stipes
+  
+  The variables measured in each individuals were:
+    1. Total.Weight: Total weight of algae (cm)
+    2. LT: Total lenght of algae (cm)
+    3. Diam_Holdfast: Maximum diameter of holdfast (cm)
+    4. High_Holdfast: Holdfast height (cm)
+    5. Weight_Holdfast: Holdfast weigth (g)
+    6. Vol_Holdfast: Holdfast volume (ml)
+    7. Estipes: Stipe numbers 
+    8. First_bif: Length from the beginning of stipe to the first dichotomy (cm)
+    9. Diam_stipes: In the middle of the stipe, under the first dichotomy (mm)
+    10. LT_stipes: From the start of the stipe on the holdfast to the last dichotomy (cm)
+    11. Dichot_stipes: Number of dichotomies from the start of the stipe to the last dichotomy
+    12. Weight_stipes: Weight of all stipes (g)
+    13. Reproductive: Presence/Absence reproductive blades
+    14. Weight blades: Weight of all blades 
+  
+```{r}
+Nerc_Allometry= read.csv("Morfo_DW_C.csv")
+summary(Nerc_Allometry)
+```
+
+3.2 Growth and survival monitoring
+   The growth of kelp after a harvesting event have been monitored in tagged recruits every 6 month in patches of NERC experiment. When kelp disapeared the holdfast value are 0.
+   
+```{r}
+Growth<- read.csv("Growth&Survival.csv")
 ```
 
