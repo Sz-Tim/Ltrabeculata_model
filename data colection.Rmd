@@ -116,5 +116,7 @@ summary(Nerc_Allometry)
 ```{r}
 Growth_Surv<- read.csv("Growth&Survival.csv")
 summary(Growth_Surv)
+
+View(Growth_Surv)
 ```
 
