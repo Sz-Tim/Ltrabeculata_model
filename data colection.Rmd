@@ -6,29 +6,32 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
 library(tidyverse)
 library(kableExtra)
 ```
 
 
-1. IFOP Database
+### 1. IFOP information
+    
+    This project evaluate the kelp forest state in TURF sites (also called AMERB in Spanish) evaluating kelp density, kelp morphology, herbivores and fish communities. 
+  
 
-1.1. Sites & georeferences by year
-```{r}
+#### 1.1. Sites & georeferences by year
+
+```{r IFOPcoords, echo=F}
 coord<-read.csv("coordenadas.csv")
  kable(coord) %>% kable_styling(bootstrap_options = c("striped", 
     "hover", "condensed"), full_width = F)
-unique(coord$Site)
 ```
-1.2. Databases
-This project evaluate the kelp forest state in TURF sites (also called AMERB in Spanish) evaluating kelp density, kelp morphology, herbivores and fish communities. 
+
+#### 1.2. Methods and databases
+
 
   - Ifop_Kelp_Density= To evaluate kelp density, 7-10 transects of 100x2 meters were monitored in each site. The transect is divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
 
-```{r}
+```{r ifopdensity, echo=F, }
 IFOP_Kelp_Density<- read_csv("IFOP_Kelp_density.csv") %>% select (c(1:8,13:18,21))%>% mutate(Site=as.factor(Site),Management=as.factor(Management),Species=as.factor(Species), Stage=as.factor(Stage)) %>% filter(Species=="Lessonia trabeculata")
-summary(IFOP_Kelp_Density)
 
 ```
 
@@ -36,58 +39,59 @@ summary(IFOP_Kelp_Density)
   - Ifop_Kelp_Morpho= In 3 of the transects, the morphology (holdfast size, no. stipes, total lenght and frondosity) and herbivores density are quantified in 1m^2 quadrants.Between 7-10 quadrants were spread equidistant across the transect.
 
 
-```{r}
+```{r ifopmorphology, echo=F}
 #Only kelp information
 IFOP_Kelp_Morpho<- read_csv("IFOP_Kelp_Morphology.csv") %>% select(c(1:9,11:13,15:19)) %>%  mutate(Site=as.factor(Site),Management=as.factor(Management),Group=as.factor(Group),Species=as.factor(Species)) %>% filter(Group=="Macroalga", Species =="Lessonia trabeculata")
-summary(IFOP_Kelp_Morpho)
-
 
 ```
   
   - Ifop_allometry= In 2018, ~30 algae were extracted from 6 of 8 monitored sites, and total weight, holdfast diameter, holdfast perimeter, number of stipes, and total lenght were measured.
   
-```{r}
+```{r ifopallometry, echo=F}
 IFOP_allometry = read.csv("IFOP_allometry.csv") %>% select(-16)
-summary(IFOP_allometry)
+
 ```
   
 
 
-2. NERC Database
+### 2. NERC information
 
-A harvesting experiment was carried out in the North, Center-North and Center of Chilean coast, comparing Open Access Areas (OA) and Management Areas (TURF). An initial monitoring was carried out, prior to the extraction (Baseline- bl) and a monitoring after 12, 18, 24 and 32 months (MAE in databases).
+    A harvesting experiment was carried out between Oct-Feb 2019-20 in the North, Center-North and Center of Chilean coast, comparing Open Access Areas (OA) and Management Areas (TURF). In each site, an initial monitoring was carried out in the forest (Baseline- bl),and then 4 patches of 6 m diameter were harvested. To evaluate the recovery, monitoring after 12, 18, 24 and 32 months (MAE in databases) were performed, evaluating kelp and herbivores density, and kelp morphology inside the patch. 
+    
+#### 2.1 Baseline (Same protocol than IFOP)
 
-2.1 Baseline : Same protocol than IFOP
-    - NERC_Kelp_Density_bl= 7-10 transects of 100x2 meters were divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
-    - NERC_Kelp_Morpho_bl= In 3 of the transects, the morphology and herbivores density were quantified in 1m^2 quadrants.Between 7-10 quadrants were spread equidistant across the transect.
+  - NERC_Kelp_Density_bl= 7-10 transects of 100x2 meters were divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
+  - NERC_Kelp_Morpho_bl= In 3 of the transects, the morphology and herbivores density were quantified in 1m^2 quadrants.Between 7-10 quadrants were spread equidistant across the transect.
 
-```{r}
+```{r nercdensity+morpho,  echo=F}
 NERC_Kelp_Density_bl= read.csv("Kelp_transect.csv")
-summary(NERC_kelpdensity_bl)
+
 
 NERC_Kelp_Morpho_bl= read.csv("Quads_baseline.csv") %>% filter(Species=="Lessonia trabeculata")
-summary(NERC_Kelp_Morpho_bl)
+
 ```
 
 
-2.2. Post-harvesting Monitoring : 
-  - NERC_Kelp_Density_ph
-  - NERC_Kelp_Morpho_ph
+#### 2.2. Post-harvesting (ph) Monitoring  
   
-```{r}
+  - NERC_Kelp_Density_ph: in 4 quads (1 m^2) per patch
+  - NERC_Kelp_Morpho_ph: in random recruits inside the patch holdfast diameter, number of stipes, and total length were measured.
+  
+```{r nercpatches,  echo=F}
 NERC_Kelp_Density_ph=read.csv("Patches_quad.csv")
-summary(NERC_Kelp_Density_ph)
+
 NERC_Kelp_Morpho_ph=read.csv("Patches_Morphology.csv")
-summary(NERC_Kelp_Morpho_ph)
+
 ```
   
 
-3. Nerc_Cata's thesis
+### 3. Nerc_Cata's thesis
 
-3.1 Allometry
+#### 3.1 Allometry
+  
   - 12-19 kelp were harvested in NERC sites, covering all the size range.
   - Weight and morphology were measured, and the relation FW:DW and Carbon content was also estimated. 
-  - Measurements in Stipes (First_bif, Diam_stipes, LT_stipes, Dichot_stipes) are a mean between 3  stipes
+  - Measurements in Stipes (First_bif, Diam_stipes, LT_stipes, Dichot_stipes) are a mean between 3  stipes  
   
   The variables measured in each individuals were:
     1. Total.Weight: Total weight of algae (cm)
@@ -105,18 +109,19 @@ summary(NERC_Kelp_Morpho_ph)
     13. Reproductive: Presence/Absence reproductive blades
     14. Weight blades: Weight of all blades 
   
-```{r}
+```{r nercallometry, echo=F}
 Nerc_Allometry= read.csv("Morfo_DW_C.csv")
-summary(Nerc_Allometry) 
+
 ```
 
 
 
-3.2 Growth and survival monitoring
+#### 3.2 Growth and survival monitoring
+   
    The growth of kelp after a harvesting event have been monitored in tagged recruits every 6 month in patches of NERC experiment. When kelp disapeared the holdfast value are 0.
    
-```{r}
+```{r nercgrowth, echo=F}
 Growth_Surv<- read.csv("Growth&Survival.csv")
-summary(Growth_Surv)
+
 ```
 
