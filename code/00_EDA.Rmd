@@ -1,0 +1,14 @@
+---
+title: "EDA"
+author: "Tim Szewczyk"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+```
+
+This document is for preliminary exploration of the data from the Subtidal Ecology lab at Pontificia Universidad. See [data-collection.html](data-collection.html) for details on the collection.
+
+
+
