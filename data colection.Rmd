@@ -6,81 +6,133 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F, warning = F, message = F)
+knitr::opts_chunk$set(warning = F, message = F)
 library(tidyverse)
+library(lubridate)
 library(kableExtra)
 ```
 
 
 ### 1. IFOP information
     
-    This project evaluate the kelp forest state in TURF sites (also called AMERB in Spanish) evaluating kelp density, kelp morphology, herbivores and fish communities. 
+This project evaluate the kelp forest state in TURF sites (also called AMERB in Spanish) evaluating kelp density, kelp morphology, herbivores and fish communities. 
   
 
 #### 1.1. Sites & georeferences by year
 
-```{r IFOPcoords, echo=F}
-coord<-read.csv("coordenadas.csv")
- kable(coord) %>% kable_styling(bootstrap_options = c("striped", 
-    "hover", "condensed"), full_width = F)
+```{r IFOPcoords, message=F}
+coord <- read.csv("coordenadas.csv")
+kable(coord) %>% 
+  kable_styling(bootstrap_options=c("striped", "hover", "condensed"), 
+                full_width = F)
 ```
 
 #### 1.2. Methods and databases
 
 
-  - Ifop_Kelp_Density= To evaluate kelp density, 7-10 transects of 100x2 meters were monitored in each site. The transect is divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
+  - **Ifop_Kelp_Density:** To evaluate kelp density, 7-10 transects of 100x2 meters were monitored in each site. The transect is divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2^).
 
-```{r ifopdensity, echo=F, }
-IFOP_Kelp_Density<- read_csv("IFOP_Kelp_density.csv") %>% select (c(1:8,13:18,21))%>% mutate(Site=as.factor(Site),Management=as.factor(Management),Species=as.factor(Species), Stage=as.factor(Stage)) %>% filter(Species=="Lessonia trabeculata")
+```{r ifopdensity, message=F}
+IFOP_Kelp_Density <- read_csv("IFOP_Kelp_density.csv", na=c("NaN", "")) %>% 
+  select (c(1:8,13:18,21)) %>% 
+  mutate(Date=ymd(paste(Year, Month, Day, sep="-")),
+         Site=factor(Site),
+         Management=factor(Management),
+         Stage=factor(Stage),
+         Frondosity=factor(Frondosity)) %>% 
+  filter(Species=="Lessonia trabeculata")
 
+glimpse(IFOP_Kelp_Density)
+summary(IFOP_Kelp_Density)
 ```
 
 
-  - Ifop_Kelp_Morpho= In 3 of the transects, the morphology (holdfast size, no. stipes, total lenght and frondosity) and herbivores density are quantified in 1m^2 quadrants.Between 7-10 quadrants were spread equidistant across the transect.
+  - **Ifop_Kelp_Morpho:** In 3 of the transects, the morphology (holdfast size, no. stipes, total length and frondosity) and herbivore density are quantified in 1m^2^ quadrants. Between 7-10 quadrants were spread equidistant across the transect.
 
 
-```{r ifopmorphology, echo=F}
+```{r ifopmorphology}
 #Only kelp information
-IFOP_Kelp_Morpho<- read_csv("IFOP_Kelp_Morphology.csv") %>% select(c(1:9,11:13,15:19)) %>%  mutate(Site=as.factor(Site),Management=as.factor(Management),Group=as.factor(Group),Species=as.factor(Species)) %>% filter(Group=="Macroalga", Species =="Lessonia trabeculata")
+IFOP_Kelp_Morpho <- read_csv("IFOP_Kelp_Morphology.csv", na=c("NaN", "")) %>% 
+  select(c(1:9,11:13,15:19)) %>% 
+  mutate(Date=ymd(paste(Year, Month, Day, sep="-")),
+         Site=factor(Site),
+         Management=factor(Management),
+         Frondosity=factor(Frondosity)) %>% # A, B, C, "", NA -- others are 0-4. Is "" == 0?
+  filter(Group=="Macroalga", Species=="Lessonia trabeculata")
 
+glimpse(IFOP_Kelp_Morpho)
+summary(IFOP_Kelp_Morpho)
 ```
   
-  - Ifop_allometry= In 2018, ~30 algae were extracted from 6 of 8 monitored sites, and total weight, holdfast diameter, holdfast perimeter, number of stipes, and total lenght were measured.
+  - **Ifop_allometry:** In 2018, ~30 algae were extracted from 6 of 8 monitored sites, and total weight, holdfast diameter, holdfast perimeter, number of stipes, and total lenght were measured.
   
-```{r ifopallometry, echo=F}
-IFOP_allometry = read.csv("IFOP_allometry.csv") %>% select(-16)
+```{r ifopallometry}
+IFOP_allometry <- read_csv("IFOP_allometry.csv") %>% 
+  select(-16) %>%
+  mutate(Date=ymd(paste(Year, Month, Day, sep="-")),
+         Site=factor(Site),
+         Management=factor(Management))
 
+glimpse(IFOP_allometry)
+summary(IFOP_allometry)
 ```
   
 
 
 ### 2. NERC information
 
-    A harvesting experiment was carried out between Oct-Feb 2019-20 in the North, Center-North and Center of Chilean coast, comparing Open Access Areas (OA) and Management Areas (TURF). In each site, an initial monitoring was carried out in the forest (Baseline- bl),and then 4 patches of 6 m diameter were harvested. To evaluate the recovery, monitoring after 12, 18, 24 and 32 months (MAE in databases) were performed, evaluating kelp and herbivores density, and kelp morphology inside the patch. 
+A harvesting experiment was carried out between Oct-Feb 2019-20 in the North, Center-North and Center of Chilean coast, comparing Open Access Areas (OA) and Management Areas (TURF). In each site, an initial monitoring was carried out in the forest (Baseline: *bl*),and then 4 patches of 6 m diameter were harvested. To evaluate the recovery, monitoring after 12, 18, 24 and 32 months (MAE in databases) were performed, evaluating kelp and herbivore density, and kelp morphology inside the patch. 
     
 #### 2.1 Baseline (Same protocol than IFOP)
 
-  - NERC_Kelp_Density_bl= 7-10 transects of 100x2 meters were divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
-  - NERC_Kelp_Morpho_bl= In 3 of the transects, the morphology and herbivores density were quantified in 1m^2 quadrants.Between 7-10 quadrants were spread equidistant across the transect.
+  - **NERC_Kelp_Density_bl:** 7-10 transects of 100x2 meters were divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
+  - **NERC_Kelp_Morpho_bl:** In 3 of the transects, the morphology and herbivores density were quantified in 1m^2^ quadrants.Between 7-10 quadrants were spread equidistant across the transect.
 
-```{r nercdensity+morpho,  echo=F}
-NERC_Kelp_Density_bl= read.csv("Kelp_transect.csv")
+```{r nercdensity+morpho,  eval=F}
+NERC_Kelp_Density_bl <- read_csv("Kelp_transect.csv") %>%
+  mutate(Site=factor(Site),
+         Zone=factor(Zone),
+         Management=factor(Management),
+         Upwelling=factor(Upwelling),
+         Stage=factor(Stage))
+glimpse(NERC_Kelp_Density_bl)
+summary(NERC_Kelp_Density_bl)
 
-
-NERC_Kelp_Morpho_bl= read.csv("Quads_baseline.csv") %>% filter(Species=="Lessonia trabeculata")
-
+NERC_Kelp_Morpho_bl <- read_csv("Quads_baseline.csv") %>% 
+  filter(Species=="Lessonia trabeculata") %>%
+  mutate(Site=factor(Site),
+         Zone=factor(Zone),
+         Management=factor(Management),
+         Upwelling=factor(Upwelling),
+         Frondosity=factor(Frondosity))
+glimpse(NERC_Kelp_Morpho_bl)
+summary(NERC_Kelp_Morpho_bl)
 ```
 
 
 #### 2.2. Post-harvesting (ph) Monitoring  
   
-  - NERC_Kelp_Density_ph: in 4 quads (1 m^2) per patch
-  - NERC_Kelp_Morpho_ph: in random recruits inside the patch holdfast diameter, number of stipes, and total length were measured.
+  - **NERC_Kelp_Density_ph:** in 4 quads (1 m^2^) per patch
+  - **NERC_Kelp_Morpho_ph:** in random recruits inside the patch holdfast diameter, number of stipes, and total length were measured.
   
-```{r nercpatches,  echo=F}
-NERC_Kelp_Density_ph=read.csv("Patches_quad.csv")
+```{r nercpatches}
+NERC_Kelp_Density_ph <- read_csv("Patches_quad.csv") %>%
+  filter(Species=="Lessonia trabeculata") %>%
+  mutate(Site=factor(Site),
+         Zone=factor(Zone),
+         Management=factor(Management),
+         Upwelling=factor(Upwelling),
+         Stage=factor(Stage))
+glimpse(NERC_Kelp_Density_ph)
+summary(NERC_Kelp_Density_ph)
 
-NERC_Kelp_Morpho_ph=read.csv("Patches_Morphology.csv")
+NERC_Kelp_Morpho_ph <- read_csv("Patches_Morphology.csv") %>%
+  mutate(Site=factor(Site),
+         Zone=factor(Zone),
+         Management=factor(Management),
+         Upwelling=factor(Upwelling))
+glimpse(NERC_Kelp_Density_ph)
+summary(NERC_Kelp_Density_ph)
 
 ```
   
@@ -91,37 +143,67 @@ NERC_Kelp_Morpho_ph=read.csv("Patches_Morphology.csv")
   
   - 12-19 kelp were harvested in NERC sites, covering all the size range.
   - Weight and morphology were measured, and the relation FW:DW and Carbon content was also estimated. 
-  - Measurements in Stipes (First_bif, Diam_stipes, LT_stipes, Dichot_stipes) are a mean between 3  stipes  
+  - Measurements in stipes (First_bif, Diam_stipes, LT_stipes, Dichot_stipes) are a mean between 3 stipes  
   
-  The variables measured in each individuals were:
-    1. Total.Weight: Total weight of algae (cm)
-    2. LT: Total lenght of algae (cm)
-    3. Diam_Holdfast: Maximum diameter of holdfast (cm)
-    4. High_Holdfast: Holdfast height (cm)
-    5. Weight_Holdfast: Holdfast weigth (g)
-    6. Vol_Holdfast: Holdfast volume (ml)
-    7. Estipes: Stipe numbers 
-    8. First_bif: Length from the beginning of stipe to the first dichotomy (cm)
-    9. Diam_stipes: In the middle of the stipe, under the first dichotomy (mm)
-    10. LT_stipes: From the start of the stipe on the holdfast to the last dichotomy (cm)
-    11. Dichot_stipes: Number of dichotomies from the start of the stipe to the last dichotomy
-    12. Weight_stipes: Weight of all stipes (g)
-    13. Reproductive: Presence/Absence reproductive blades
-    14. Weight blades: Weight of all blades 
-  
-```{r nercallometry, echo=F}
-Nerc_Allometry= read.csv("Morfo_DW_C.csv")
+The variables measured in each individuals were:  
 
+  1. Total.Weight: Total weight of algae (cm)  
+  2. LT: Total lenght of algae (cm)  
+  3. Diam_Holdfast: Maximum diameter of holdfast (cm)  
+  4. High_Holdfast: Holdfast height (cm)  
+  5. Weight_Holdfast: Holdfast weigth (g)  
+  6. Vol_Holdfast: Holdfast volume (ml)  
+  7. Estipes: Stipe numbers  
+  8. First_bif: Length from the beginning of stipe to the first dichotomy (cm)  
+  9. Diam_stipes: In the middle of the stipe, under the first dichotomy (mm)  
+  10. LT_stipes: From the start of the stipe on the holdfast to the last dichotomy (cm)  
+  11. Dichot_stipes: Number of dichotomies from the start of the stipe to the last dichotomy  
+  12. Weight_stipes: Weight of all stipes (g)  
+  13. Reproductive: Presence/Absence reproductive blades  
+  14. Weight blades: Weight of all blades  
+  
+```{r nercallometry}
+Nerc_Allometry <- read_csv("Morfo_DW_C.csv") %>%
+    mutate(Site=factor(Site),
+         Zone=factor(Zone),
+         Management=factor(Management))
+
+glimpse(Nerc_Allometry)
+summary(Nerc_Allometry)
 ```
-
 
 
 #### 3.2 Growth and survival monitoring
    
-   The growth of kelp after a harvesting event have been monitored in tagged recruits every 6 month in patches of NERC experiment. When kelp disapeared the holdfast value are 0.
+The growth of kelp after a harvesting event have been monitored in tagged recruits every 6 month in patches of NERC experiment. When kelp disapeared the holdfast value are 0.
    
-```{r nercgrowth, echo=F}
-Growth_Surv<- read.csv("Growth&Survival.csv")
+```{r nercgrowth}
+Growth_Surv <- read_csv("Growth&Survival.csv") %>%
+  mutate(Site=factor(Site),
+         Management=factor(Management),
+         Plant=factor(Plant),
+         alive=as.numeric(Holdfast > 0),
+         Date_Harvest=Date_harvest_dmy %>%
+           str_replace("Dic", "01-12") %>%
+           str_replace("Nov", "01-11") %>%
+           str_replace("Ene", "01-01") %>%
+           str_replace("Feb", "01-02") %>%
+           dmy(),
+         Date_Obs=Date_monitoring %>%
+           str_replace("Abr", "01-04") %>%
+           str_replace("Oct", "01-10") %>%
+           str_replace("May", "01-05") %>%
+           dmy()) %>%
+  mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest))
 
+glimpse(Growth_Surv)
+summary(Growth_Surv)
+
+# Suspected entry error: 
+Growth_Surv %>% filter(Management=="OA" & Plant==2 & Patch==1)
+# Monitoring dates are almost certainly incorrect
+ggplot(Growth_Surv, aes(Date_Obs, Holdfast, group=paste(Plant, Site, Patch), colour=Plant)) + 
+  geom_point() + geom_line() + facet_wrap(~Management) +
+  scale_colour_manual(values=randomcoloR::randomColor(53)) + theme_bw()
 ```
 
