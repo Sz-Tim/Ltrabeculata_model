@@ -3,6 +3,8 @@ title: "Lesonia trabeculata data"
 author: "SUBELAB"
 date: "26 de agosto de 2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -88,7 +90,7 @@ A harvesting experiment was carried out between Oct-Feb 2019-20 in the North, Ce
   - **NERC_Kelp_Density_bl:** 7-10 transects of 100x2 meters were divided into 10 m stations (n=10), where adult (>10 cm holdfast) and juvenile (<10 cm holdfast) kelp were counted at 1 m on each side (20 m^2).
   - **NERC_Kelp_Morpho_bl:** In 3 of the transects, the morphology and herbivores density were quantified in 1m^2^ quadrants.Between 7-10 quadrants were spread equidistant across the transect.
 
-```{r nercdensity+morpho,  eval=F}
+```{r nercdensity+morpho}
 NERC_Kelp_Density_bl <- read_csv("Kelp_transect.csv") %>%
   mutate(Site=factor(Site),
          Zone=factor(Zone),
@@ -131,8 +133,8 @@ NERC_Kelp_Morpho_ph <- read_csv("Patches_Morphology.csv") %>%
          Zone=factor(Zone),
          Management=factor(Management),
          Upwelling=factor(Upwelling))
-glimpse(NERC_Kelp_Density_ph)
-summary(NERC_Kelp_Density_ph)
+glimpse(NERC_Kelp_Morpho_ph)
+summary(NERC_Kelp_Morpho_ph)
 
 ```
   
@@ -202,8 +204,14 @@ summary(Growth_Surv)
 # Suspected entry error: 
 Growth_Surv %>% filter(Management=="OA" & Plant==2 & Patch==1)
 # Monitoring dates are almost certainly incorrect
-ggplot(Growth_Surv, aes(Date_Obs, Holdfast, group=paste(Plant, Site, Patch), colour=Plant)) + 
+ggplot(Growth_Surv, aes(Date_Obs, Holdfast, 
+                        group=paste(Plant, Site, Patch), colour=Plant)) + 
   geom_point() + geom_line() + facet_wrap(~Management) +
   scale_colour_manual(values=randomcoloR::randomColor(53)) + theme_bw()
+
+ggplot(Growth_Surv, aes(Date_Obs, Holdfast, 
+                        group=paste(Plant, Site, Patch), colour=Plant)) + 
+    geom_point() + geom_line() + facet_grid(Patch~Site) +
+    scale_colour_manual(values=randomcoloR::randomColor(53)) + theme_bw()
 ```
 
