@@ -1,14 +1,475 @@
 ---
-title: "EDA"
+title: "KELPER2"
+subtitle: "Dataset EDA"
 author: "Tim Szewczyk"
-output: html_document
+output: 
+  html_document: 
+    number_sections: yes
+    theme: spacelab
+    anchor_sections: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo=TRUE)
+knitr::opts_knit$set(root.dir=rprojroot::find_rstudio_root_file())
+knitr::opts_chunk$set(echo=TRUE, message=F, warning=F)
+library(tidyverse); library(glue); library(lubridate)
+theme_set(theme_bw())
+
+data.dir <- "data/chile/"
 ```
 
 This document is for preliminary exploration of the data from the Subtidal Ecology lab at Pontificia Universidad. See [data-collection.html](data-collection.html) for details on the collection.
 
+
+# Allometry
+
+Start with the simplest. Holdfast diameter will be the primary metric for tracking plant size and will be used to estimate everything else, including biomass and demographic rates.
+
+```{r allom_loadData}
+morph.df <- list(
+  IFOP_morph=read_csv(glue("{data.dir}IFOP_Kelp_Morphology.csv"),
+                      na=c("NaN", "")) %>% 
+    select(c(1:9,11:13,15:19)) %>%
+    filter(Group=="Macroalga" &
+             Species=="Lessonia trabeculata" &
+             Abundance > 0) %>% 
+    mutate(Date=ymd(paste(Year, Month, Day, sep="-")),
+           Site=factor(Site),
+           Management=factor(Management),
+           Frondosity=factor(Frondosity),
+           source="IFOP_morph") %>%
+    rename(LengthTot=TL),
+  IFOP_allom=read_csv(glue("{data.dir}IFOP_allometry.csv")) %>% 
+    select(-16) %>%
+    mutate(Date=ymd(paste(Year, Month, Day, sep="-")),
+           Site=factor(Site),
+           Management=factor(Management),
+           Weight=1e3*Weight,
+           source="IFOP_allom") %>%
+    rename(LengthTot=TL,
+           WeightTot=Weight),
+  NERC_bl=read_csv(glue("{data.dir}Quads_baseline.csv")) %>% 
+    select(-c(1,3:4,10:12)) %>%
+    filter(Species=="Lessonia trabeculata") %>%
+    mutate(Site=factor(Site),
+           Zone=factor(Zone),
+           Management=factor(Management),
+           Upwelling=factor(Upwelling),
+           Frondosity=factor(Frondosity),
+           source="NERC_bl") %>%
+    rename(Holdfast=Holdfast.Diameter,
+           LengthTot=Total.Length),
+  NERC_ph=read_csv(glue("{data.dir}Patches_Morphology.csv")) %>%
+    mutate(Site=factor(Site),
+           Zone=factor(Zone),
+           Management=factor(Management),
+           Upwelling=factor(Upwelling),
+           source="NERC_ph") %>%
+    rename(Holdfast=Holdfast.Diameter,
+           LengthTot=Total.Length),
+  Cata_ph=read_csv(glue("{data.dir}Morfo_DW_C.csv")) %>%
+    select(-c(1,11,20:30)) %>%
+    mutate(Site=factor(Site),
+         Zone=factor(Zone),
+         Management=factor(Management)) %>%
+    rename(Holdfast=Diam_Holdfast,
+           Height=High_Holdfast,
+           LengthTot=LT,
+           WeightTot=TW_sum,
+           Weight=Weight_Str,
+           Length=LT_stipes,
+           Dichot=Dichot_stipes,
+           Diam=Diam_stipes) %>%
+    pivot_wider(names_from="Structure", values_from=c(8:17)) %>%
+    select(!where(~all(is.na(.x)))) %>%
+    select(-starts_with("Structure_")) %>%
+    mutate(source="Cata_ph") %>%
+    rename(Stipes=Stipes_Stipes)
+) %>%
+  do.call('bind_rows', .)
+```
+
+```{r allom_summaries}
+glimpse(morph.df)
+summary(morph.df)
+```
+
+```{r morph_univariate}
+ggplot(morph.df, aes(Holdfast)) + geom_histogram() + 
+  facet_wrap(~source, scales="free_y")
+ggplot(morph.df, aes(Holdfast, colour=source)) + geom_density()
+
+ggplot(morph.df, aes(LengthTot)) + geom_histogram() + 
+  facet_wrap(~source, scales="free_y")
+ggplot(morph.df, aes(LengthTot, colour=source)) + geom_density()
+
+ggplot(morph.df, aes(WeightTot)) + geom_histogram() + 
+  facet_wrap(~source, scales="free_y")
+ggplot(morph.df, aes(WeightTot, colour=source)) + geom_density()
+
+ggplot(morph.df, aes(Frondosity)) + geom_bar() + 
+  facet_wrap(~source, scales="free_y")
+
+ggplot(morph.df, aes(factor(Reproductive))) + geom_bar() + 
+  facet_wrap(~source, scales="free_y")
+
+```
+
+
+```{r allom_plots}
+ggplot(morph.df, aes(Holdfast, Stipes, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+
+ggplot(morph.df, aes(Holdfast, LengthTot, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site),
+              formula=y~x+I(x^2)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source),
+              formula=y~x+I(x^2)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+
+ggplot(morph.df, aes(Holdfast, WeightTot, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site),
+              formula=y~x+I(x^2)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source),
+              formula=y~x+I(x^2)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+
+ggplot(morph.df, aes(LengthTot, WeightTot, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous(trans="log1p") +
+  scale_y_continuous(trans="log1p")
+
+ggplot(morph.df, aes(Holdfast, Weight_Holdfast, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+ggplot(morph.df, aes(Holdfast, Weight_Stipes, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+ggplot(morph.df, aes(Holdfast, Weight_Blades, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+
+# Larger holdfast = less blade-y by weight, more holdfast-y & stipe-y
+ggplot(morph.df, aes(Holdfast, Weight_Holdfast/WeightTot, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous("Holdfast weight / Total", limits=c(0,1))
+ggplot(morph.df, aes(Holdfast, Weight_Stipes/WeightTot, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous("Stipe weight / Total", limits=c(0,1))
+ggplot(morph.df, aes(Holdfast, Weight_Blades/WeightTot, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site)) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous("Blade weight / Total", limits=c(0,1))
+
+ggplot(morph.df, aes(Holdfast, Height_Holdfast, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.25, aes(group=Site)) +
+  scale_x_log10() + scale_y_log10()
+
+ggplot(morph.df, aes(Holdfast, colour=factor(Frondosity))) + 
+  geom_density() + scale_colour_viridis_d() +
+  scale_x_log10() 
+
+# Lots of NAs -- Cata's thesis should have this too
+ggplot(morph.df, aes(Holdfast, colour=factor(Reproductive))) + 
+  geom_density() + 
+  scale_x_log10() 
+```
+
+
+# Density
+
+To come.
+
+
+
+# Growth & Survival dataset
+```{r growthSurv_loadData}
+Growth_Surv <- read_csv(glue("{data.dir}Growth&Survival.csv")) %>%
+  mutate(Site=factor(Site),
+         Management=factor(Management),
+         Plant=factor(Plant),
+         alive=as.numeric(Holdfast > 0),
+         Date_Harvest=Date_harvest_dmy %>%
+           str_replace("Dic", "01-12") %>%
+           str_replace("Nov", "01-11") %>%
+           str_replace("Ene", "01-01") %>%
+           str_replace("Feb", "01-02") %>%
+           dmy(),
+         Date_Obs=Date_monitoring %>%
+           str_replace("Abr", "01-04") %>%
+           str_replace("Oct", "01-10") %>%
+           str_replace("May", "01-05") %>%
+           dmy()) %>%
+  mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest))
+
+survey.i <- Growth_Surv %>%
+  group_by(Site, Management, Patch, Monitoring) %>%
+  summarise(Date_Harvest=min(Date_Harvest),
+            Date_Obs=min(Date_Obs)) %>%
+  arrange(Management, Site, Patch, Monitoring)
+survey.i <- bind_rows(
+  survey.i,
+  survey.i %>% slice_head(n=1) %>%
+    mutate(Monitoring=0,
+           Date_Obs=Date_Harvest)
+  ) %>%
+  arrange(Management, Site, Patch, Monitoring) %>%
+  mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest),
+         days_since_prevObs=as.numeric(Date_Obs - lag(Date_Obs)),
+         days_since_prevObs=replace_na(days_since_prevObs, 0))
+```
+
+
+
+
+# Survival
+We can link probability of survival to holdfast size x Management. Still to do: account for differences in number of days between monitoring surveys. Calculate seasonal or annual rates as possible. 
+```{r survival_plots}
+surv.df <- Growth_Surv %>% 
+  select(Site, Management, Patch, Monitoring, 
+         Plant, Holdfast, Stipes, Total_Length) %>%
+  left_join(., survey.i) %>%
+  arrange(Site, Patch, Plant, Monitoring) %>%
+  mutate(prevSurv=Monitoring-1) %>%
+  arrange(Site, Patch, Plant, Monitoring) %>%
+  group_by(Site, Patch, Plant) %>%
+  mutate(doesSurvive=lead(Holdfast>0),
+         maxAge_days=cumsum(days_since_prevObs),
+         maxAge_yrs=maxAge_days/365) 
+
+ggplot(surv.df, aes(Holdfast, as.numeric(doesSurvive))) +  
+  geom_jitter(shape=1, height=0.025, width=0.25) +
+  stat_smooth(method="glm", method.args=list(family="binomial")) +
+  scale_x_continuous(trans="log1p")
+ggplot(surv.df, aes(Holdfast, as.numeric(doesSurvive), colour=Management)) +  
+  geom_jitter(shape=1, height=0.025, width=0.25) +
+  stat_smooth(aes(group=Site), method="glm", method.args=list(family="binomial"), se=F, size=0.25) +
+  stat_smooth(method="glm", method.args=list(family="binomial")) +
+  scale_x_continuous(trans="log1p")
+```
+
+
+
+# Growth
+We can link the holdfast size at t+1 to holdfast size at t x Management. Still to do: account for differences in number of days between monitoring surveys. Calculate seasonal or annual rates as possible.
+```{r growth_plots}
+grow.df <- Growth_Surv %>% 
+  select(Site, Management, Patch, Monitoring, 
+         Plant, Holdfast, Stipes, Total_Length) %>%
+  left_join(., survey.i) %>%
+  arrange(Site, Patch, Plant, Monitoring) %>%
+  mutate(prevSurv=Monitoring-1) %>%
+  arrange(Site, Patch, Plant, Monitoring) %>%
+  group_by(Site, Patch, Plant) %>%
+  mutate(doesSurvive=lead(Holdfast>0),
+         nextHoldfast=lead(Holdfast),
+         nextStipes=lead(Stipes),
+         nextLength=lead(Total_Length),
+         maxAge_days=cumsum(days_since_prevObs),
+         maxAge_yrs=maxAge_days/365) %>%
+  filter(doesSurvive)
+
+ggplot(grow.df, aes(Holdfast, nextHoldfast)) + geom_abline(colour="grey") +
+  geom_point() + stat_smooth(method="lm", formula=y~x+I(x^2)) +
+  scale_x_log10() + scale_y_log10()
+ggplot(grow.df, aes(Holdfast, nextHoldfast, colour=Management)) + geom_abline(colour="grey") +
+  geom_point() + 
+  stat_smooth(aes(group=Site), method="lm", formula=y~x+I(x^2), se=F, size=0.25) +
+  stat_smooth(method="lm", formula=y~x+I(x^2)) +
+  scale_x_log10() + scale_y_log10()
+
+ggplot(grow.df, aes(Stipes, nextStipes)) + geom_abline(colour="grey") +
+  geom_point() + stat_smooth(method="lm", formula=y~x+I(x^2)) 
+ggplot(grow.df, aes(Stipes, nextStipes, colour=Management)) + geom_abline(colour="grey") +
+  geom_point() + 
+  stat_smooth(aes(group=Site), method="lm", formula=y~x+I(x^2), se=F, size=0.25) +
+  stat_smooth(method="lm", formula=y~x+I(x^2)) 
+
+ggplot(grow.df, aes(Total_Length, nextLength)) + geom_abline(colour="grey") +
+  geom_point() + stat_smooth(method="lm", formula=y~x+I(x^2)) +
+  scale_x_log10() + scale_y_log10()
+ggplot(grow.df, aes(Total_Length, nextLength, colour=Management)) + geom_abline(colour="grey") +
+  geom_point() + 
+  stat_smooth(aes(group=Site), method="lm", formula=y~x+I(x^2), se=F, size=0.25) +
+  stat_smooth(method="lm", formula=y~x+I(x^2)) +
+  scale_x_log10() + scale_y_log10()
+```
+
+
+
+
+
+# Recruitment
+We can estimate size distributions of recruits by management, and estimate the number of recruits as a function of the number of *other* plants in the plot
+```{r recruitment_plots}
+rcr.df <- Growth_Surv %>% 
+  select(Site, Management, Patch, Monitoring, 
+         Plant, Holdfast, Stipes, Total_Length) %>%
+  left_join(., survey.i) %>%
+  arrange(Site, Patch, Plant, Monitoring) %>%
+  mutate(prevSurv=Monitoring-1) %>%
+  arrange(Site, Patch, Plant, Monitoring) %>%
+  group_by(Site, Patch, Plant) %>%
+  mutate(newRecruit=is.na(lag(Holdfast)),
+         maxAge_days=cumsum(days_since_prevObs),
+         maxAge_yrs=maxAge_days/365) %>%
+  group_by(Site, Patch, Monitoring) %>%
+  mutate(nPlants=sum(Holdfast>0),
+         totHoldfast=sum(Holdfast)) %>%
+  ungroup %>%
+  filter(newRecruit==TRUE) %>%
+  filter(maxAge_yrs < 1.5) 
+
+
+# Some bias in measurements: preference for 0.2, 10 cm
+table(rcr.df$Holdfast)
+
+ggplot(rcr.df, aes(Holdfast)) + geom_density() + 
+  ggtitle("Recruit size distr.") +
+  scale_x_continuous(trans="log1p")
+ggplot(rcr.df, aes(Holdfast, colour=Management)) + 
+  geom_density(aes(group=Site), size=0.25) + 
+  geom_density(size=1) +
+  ggtitle("Recruit size distr.") +
+  scale_x_continuous(trans="log1p")
+
+ggplot(rcr.df, aes(maxAge_yrs)) + geom_histogram() +
+  ggtitle("Recruit max possible age")
+
+ggplot(rcr.df, aes(Holdfast)) + geom_histogram() +
+  scale_x_continuous(trans="log1p") + facet_grid(Management~Monitoring)
+
+ggplot(rcr.df, aes(factor(Monitoring), fill=Management)) + geom_bar(position="dodge") + 
+  ggtitle("Number of recruits decreases with time")
+ggplot(rcr.df, aes(Management, fill=factor(Monitoring))) + geom_bar(position="fill") + 
+  ggtitle("Number of recruits decreases with time, maybe more strongly in TURF")
+
+rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
+  summarise(nRecruits=sum(newRecruit)) %>%
+  ggplot(aes(nPlants-nRecruits, nRecruits)) + geom_jitter() +
+  stat_smooth(method="lm", formula=y~log1p(x)) +
+  scale_y_continuous(trans="log1p") +
+  xlab("Number of non-recruits")
+rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
+  summarise(nRecruits=sum(newRecruit)) %>%
+  ggplot(aes(nPlants-nRecruits, nRecruits, colour=Management)) + geom_jitter() +
+  stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
+  stat_smooth(method="lm", formula=y~log1p(x), size=1) +
+  scale_y_continuous(trans="log1p") +
+  xlab("Number of non-recruits")
+
+rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
+  summarise(nRecruits=sum(newRecruit),
+            HoldfastRcr=sum(newRecruit*Holdfast)) %>%
+  ggplot(aes(totHoldfast-HoldfastRcr, nRecruits)) + geom_jitter() +
+  stat_smooth(method="lm", formula=y~log1p(x)) +
+  scale_y_continuous(trans="log1p") +
+  xlab("Total holdfast diameter of non-recruits")
+rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
+  summarise(nRecruits=sum(newRecruit),
+            HoldfastRcr=sum(newRecruit*Holdfast)) %>%
+  ggplot(aes(totHoldfast-HoldfastRcr, nRecruits, colour=Management)) + geom_jitter() +
+  stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
+  stat_smooth(method="lm", formula=y~log1p(x), size=1) +
+  scale_y_continuous(trans="log1p") +
+  xlab("Total holdfast diameter of non-recruits")
+
+# The recruit size distribution seems to change with time-since-harvest.
+# Mainly small recruits at the start, then larger recruits at TURF sites as 
+# populations become established... These should only be *new* recruits since
+# the last survey. Differences in thinning / establishment by management? OA
+# tend to have more and smaller recruits after the initial pulse. 
+
+# How does this interact with higher survival rates and faster growth rates in TURF?
+# Lower establishment, but better survival and growth once established?
+ggplot(rcr.df, aes(days_since_harvest, Holdfast)) + 
+  geom_jitter(width=10, height=0.1) + 
+  stat_smooth(span=1.5) +
+  ggtitle("Recruit size vs. time since clearance") +
+  scale_y_continuous(trans="log1p")
+ggplot(rcr.df, aes(days_since_harvest, Holdfast, colour=Management)) + 
+  geom_jitter(width=10, height=0.1) + 
+  stat_smooth(aes(group=Site), span=1.5, se=F, size=0.25) +
+  stat_smooth(span=1.5) +
+  ggtitle("Recruit size vs. time since clearance") +
+  scale_y_continuous(trans="log1p")
+
+ggplot(rcr.df, aes(Holdfast, colour=factor(Monitoring))) + 
+  geom_density(aes(group=paste(Site, Monitoring)), adjust=1.5) + 
+  ggtitle("Recruit size vs. time since clearance") +
+  scale_y_continuous(trans="log1p") +
+  facet_wrap(~Management)
+
+rcr.df %>% group_by(Site, Management, Patch, Monitoring, days_since_harvest) %>%
+  summarise(nRecruits=sum(newRecruit)) %>%
+  ggplot(aes(days_since_harvest, nRecruits)) + 
+  geom_jitter(width=10, height=0.1) + 
+  stat_smooth(span=1.5) +
+  ggtitle("Number of recruits vs. time since clearance") +
+  scale_y_continuous(trans="log1p")
+rcr.df %>% group_by(Site, Management, Patch, Monitoring, days_since_harvest) %>%
+  summarise(nRecruits=sum(newRecruit)) %>%
+  ggplot(aes(days_since_harvest, nRecruits, colour=Management)) + 
+  geom_jitter(width=10, height=0.1) + 
+  stat_smooth(aes(group=Site), span=1.5, se=F, size=0.25) +
+  stat_smooth(span=1.5) +
+  ggtitle("Number of recruits vs. time since clearance") +
+  scale_y_continuous(trans="log1p")
+```
+
+
+
+
+
+# Reproduction
+We can fit a nice curve predicting the probability of reproductive blades given holdfast diameter, but do we have any data linking reproductive blades to recruits? That is, what we need is $F(z',z) \sim p_{repro}(z) f_{spores}(z) p_{estab} f_{rcrSize}(z')$. We have an estimate for $p_{repro}(z)$, which is the probability of having reproductive blades given a holdfast size $z$. We have part of $f_{rcrSize}(z')$, which is the expected recruit size distribution at time $t+1$. What we're missing is how many spores might be produced by each reproductive plant, and how likely those spores are to establish. 
+
+We could potentially lump several processes and calculate directly the number of recruits from the data above based on a presumed maximum established recruits, with the actual as a function of $N$.
+```{r}
+morph.df %>%
+  filter(!is.na(Reproductive)) %>% 
+  droplevels() %>%
+  ggplot(aes(Holdfast, Reproductive)) + 
+  geom_jitter(shape=1, height=0.025, width=0.5) +
+  stat_smooth(method="glm", method.args=list(family="binomial")) +
+  scale_x_continuous(trans="log1p")
+morph.df %>%
+  filter(!is.na(Reproductive)) %>% 
+  droplevels() %>%
+  ggplot(aes(Holdfast, Reproductive, colour=Management)) + 
+  geom_jitter(shape=1, height=0.025, width=0.5) +
+  stat_smooth(method="glm", method.args=list(family="binomial")) +
+  scale_x_continuous(trans="log1p")
+```
 
 
