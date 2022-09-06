@@ -246,7 +246,8 @@ survey.i <- bind_rows(
   arrange(Management, Site, Patch, Monitoring) %>%
   mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest),
          days_since_prevObs=as.numeric(Date_Obs - lag(Date_Obs)),
-         days_since_prevObs=replace_na(days_since_prevObs, 0))
+         days_since_prevObs=replace_na(days_since_prevObs, 0),
+         days_to_nextObs=as.numeric(lead(Date_Obs) - Date_Obs))
 ```
 
 
@@ -297,32 +298,40 @@ grow.df <- Growth_Surv %>%
          nextLength=lead(Total_Length),
          maxAge_days=cumsum(days_since_prevObs),
          maxAge_yrs=maxAge_days/365) %>%
-  filter(doesSurvive)
+  filter(doesSurvive) %>%
+  ungroup %>%
+  mutate(annHoldfastGrowth=(nextHoldfast-Holdfast)/days_to_nextObs*365,
+         annStipeGrowth=(nextStipes-Stipes)/days_to_nextObs*365,
+         annLengthGrowth=(nextLength-Total_Length)/days_to_nextObs*365)
 
-ggplot(grow.df, aes(Holdfast, nextHoldfast)) + geom_abline(colour="grey") +
+ggplot(grow.df, aes(Holdfast, Holdfast+annHoldfastGrowth)) + 
+  geom_abline(colour="grey") +
   geom_point() + stat_smooth(method="lm", formula=y~x+I(x^2)) +
   scale_x_log10() + scale_y_log10()
-ggplot(grow.df, aes(Holdfast, nextHoldfast, colour=Management)) + geom_abline(colour="grey") +
+ggplot(grow.df, aes(Holdfast, Holdfast+annHoldfastGrowth, colour=Management)) +
+  geom_abline(colour="grey") +
   geom_point() + 
   stat_smooth(aes(group=Site), method="lm", formula=y~x+I(x^2), se=F, size=0.25) +
   stat_smooth(method="lm", formula=y~x+I(x^2)) +
   scale_x_log10() + scale_y_log10()
 
-ggplot(grow.df, aes(Stipes, nextStipes)) + geom_abline(colour="grey") +
+ggplot(grow.df, aes(Stipes, Stipes+annStipeGrowth)) +
+  geom_abline(colour="grey") +
   geom_point() + stat_smooth(method="lm", formula=y~x+I(x^2)) 
-ggplot(grow.df, aes(Stipes, nextStipes, colour=Management)) + geom_abline(colour="grey") +
+ggplot(grow.df, aes(Stipes, Stipes+annStipeGrowth, colour=Management)) + 
+  geom_abline(colour="grey") +
   geom_point() + 
   stat_smooth(aes(group=Site), method="lm", formula=y~x+I(x^2), se=F, size=0.25) +
   stat_smooth(method="lm", formula=y~x+I(x^2)) 
 
-ggplot(grow.df, aes(Total_Length, nextLength)) + geom_abline(colour="grey") +
-  geom_point() + stat_smooth(method="lm", formula=y~x+I(x^2)) +
-  scale_x_log10() + scale_y_log10()
-ggplot(grow.df, aes(Total_Length, nextLength, colour=Management)) + geom_abline(colour="grey") +
+ggplot(grow.df, aes(Total_Length, Total_Length+annLengthGrowth)) + 
+  geom_abline(colour="grey") +
+  geom_point() + stat_smooth(method="lm", formula=y~x+I(x^2))
+ggplot(grow.df, aes(Total_Length, Total_Length+annLengthGrowth, colour=Management)) +
+  geom_abline(colour="grey") +
   geom_point() + 
   stat_smooth(aes(group=Site), method="lm", formula=y~x+I(x^2), se=F, size=0.25) +
-  stat_smooth(method="lm", formula=y~x+I(x^2)) +
-  scale_x_log10() + scale_y_log10()
+  stat_smooth(method="lm", formula=y~x+I(x^2)) 
 ```
 
 
@@ -330,7 +339,7 @@ ggplot(grow.df, aes(Total_Length, nextLength, colour=Management)) + geom_abline(
 
 
 # Recruitment
-We can estimate size distributions of recruits by management, and estimate the number of recruits as a function of the number of *other* plants in the plot
+We can estimate size distributions of recruits by management, and estimate the number of recruits as a function of the number or size of non-recruits in the plot. **TODO:** Account for  the differences in time between monitoring periods to annualize somehow.
 ```{r recruitment_plots}
 rcr.df <- Growth_Surv %>% 
   select(Site, Management, Patch, Monitoring, 
@@ -376,13 +385,15 @@ ggplot(rcr.df, aes(Management, fill=factor(Monitoring))) + geom_bar(position="fi
 
 rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
   summarise(nRecruits=sum(newRecruit)) %>%
-  ggplot(aes(nPlants-nRecruits, nRecruits)) + geom_jitter() +
+  ggplot(aes(nPlants-nRecruits, nRecruits)) + 
+  geom_jitter(width=0.2, height=0.2) +
   stat_smooth(method="lm", formula=y~log1p(x)) +
   scale_y_continuous(trans="log1p") +
   xlab("Number of non-recruits")
 rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
   summarise(nRecruits=sum(newRecruit)) %>%
-  ggplot(aes(nPlants-nRecruits, nRecruits, colour=Management)) + geom_jitter() +
+  ggplot(aes(nPlants-nRecruits, nRecruits, colour=Management)) + 
+  geom_jitter(width=0.2, height=0.2) +
   stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
   stat_smooth(method="lm", formula=y~log1p(x), size=1) +
   scale_y_continuous(trans="log1p") +
@@ -391,7 +402,8 @@ rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
 rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
   summarise(nRecruits=sum(newRecruit),
             HoldfastRcr=sum(newRecruit*Holdfast)) %>%
-  ggplot(aes(totHoldfast-HoldfastRcr, nRecruits)) + geom_jitter() +
+  ggplot(aes(totHoldfast-HoldfastRcr, nRecruits)) + 
+  geom_jitter(width=0.2, height=0.2) +
   stat_smooth(method="lm", formula=y~log1p(x)) +
   scale_y_continuous(trans="log1p") +
   xlab("Total holdfast diameter of non-recruits")
