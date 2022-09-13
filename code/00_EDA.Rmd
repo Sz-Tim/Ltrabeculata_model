@@ -254,7 +254,7 @@ survey.i <- bind_rows(
 
 
 # Survival
-We can link probability of survival to holdfast size x Management. Still to do: account for differences in number of days between monitoring surveys. Calculate seasonal or annual rates as possible. 
+We can link probability of survival to holdfast size x Management. With the magic of Hierarchical Bayesian modelling, we can annualize the estimated survival rates if we assume that the survival probability is constant throughout the year.
 ```{r survival_plots}
 surv.df <- Growth_Surv %>% 
   select(Site, Management, Patch, Monitoring, 
@@ -266,17 +266,78 @@ surv.df <- Growth_Surv %>%
   group_by(Site, Patch, Plant) %>%
   mutate(doesSurvive=lead(Holdfast>0),
          maxAge_days=cumsum(days_since_prevObs),
-         maxAge_yrs=maxAge_days/365) 
+         maxAge_yrs=maxAge_days/365,
+         surv_01=as.numeric(doesSurvive),
+         logHoldfast=log(Holdfast)) %>%
+  filter(!is.na(doesSurvive))
+
+surv.df %>% group_by(Management) %>%
+  summarise(nPlants=n_distinct(paste(Site, Patch, Plant)),
+            nMortalities=sum(!doesSurvive),
+            nSurvivals=sum(doesSurvive))
 
 ggplot(surv.df, aes(Holdfast, as.numeric(doesSurvive))) +  
   geom_jitter(shape=1, height=0.025, width=0.25) +
   stat_smooth(method="glm", method.args=list(family="binomial")) +
-  scale_x_continuous(trans="log1p")
+  scale_x_continuous(trans="log", breaks=c(0.1, 1, 5, 20))
 ggplot(surv.df, aes(Holdfast, as.numeric(doesSurvive), colour=Management)) +  
   geom_jitter(shape=1, height=0.025, width=0.25) +
-  stat_smooth(aes(group=Site), method="glm", method.args=list(family="binomial"), se=F, size=0.25) +
   stat_smooth(method="glm", method.args=list(family="binomial")) +
-  scale_x_continuous(trans="log1p")
+  scale_x_continuous(trans="log", breaks=c(0.1, 1, 5, 20))
+
+# This is asking a lot of the data, but we can get reasonable looking curves
+# across management types. The outcome isn't all that sensitive to priors 
+# at least within reason. Here's an option expecting greater variability among
+# sites, then among plants, then among patches, and some nudged slopes.
+library(brms)
+out <- brm(bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
+              pSurvYr ~ logHoldfast * Management + 
+                (1+logHoldfast * Management|Site/Patch/Plant),
+              nl=T),
+           data=surv.df, init=0, family="bernoulli", chains=4, cores=4,
+           prior=c(prior(normal(0, 1), nlpar="pSurvYr"),
+                   prior(normal(-1, 1), nlpar="pSurvYr", coef="Intercept"),
+                   prior(normal(1, 1), nlpar="pSurvYr", coef="ManagementTURF"),
+                   prior(normal(0, 0.5), nlpar="pSurvYr", class="sd", lb=0, 
+                         group="Site"),
+                   prior(normal(0, 0.1), nlpar="pSurvYr", class="sd", lb=0,
+                         group="Site:Patch"),
+                   prior(normal(0, 0.25), nlpar="pSurvYr", class="sd", lb=0,
+                         group="Site:Patch:Plant")))
+
+fitted.df <- expand_grid(logHoldfast=seq(-2.5,3.5,length.out=100),
+            Management=levels(surv.df$Management)) %>%
+  mutate(maxAge_yrs=1,
+         Holdfast=exp(logHoldfast),
+         Site=NA, Patch=NA, Plant=NA) %>%
+  bind_cols(posterior_epred(out, newdata=., nlpar="pSurvYr", 
+                            ndraws=4000, re_formula=NA) %>%
+                        t %>% as_tibble) %>%
+  pivot_longer(starts_with("V"), names_to="iter", values_to="logit_p") %>%
+  group_by(logHoldfast, Holdfast, Management) %>%
+  summarise(logit_p_mn=mean(logit_p),
+            logit_p_lo=tidybayes::qi(logit_p, 0.9)[,1],
+            logit_p_hi=tidybayes::qi(logit_p, 0.9)[,2]) %>%
+  mutate(across(starts_with("logit_p"), inv_logit_scaled, 
+                .names="{str_sub({.col}, 7, -1)}"))
+fitted.df %>%
+  ggplot(aes(Holdfast, p_mn, colour=Management, fill=Management)) + 
+  geom_ribbon(aes(ymin=p_lo, ymax=p_hi), alpha=0.5, colour=NA) +
+  geom_line() +
+  geom_jitter(data=surv.df, aes(y=surv_01),
+              shape=1, height=0.025, width=0.05) +
+  scale_x_continuous(trans="log", breaks=c(0.1, 1, 5, 20)) +
+  labs(x="Holdfast diameter (cm)", y="Annual survival probability")
+
+fitted.df %>%
+  ggplot(aes(logHoldfast, logit_p_mn, colour=Management, fill=Management)) + 
+  geom_ribbon(aes(ymin=logit_p_lo, ymax=logit_p_hi), alpha=0.5, colour=NA) +
+  geom_line() +
+  geom_jitter(data=surv.df, aes(y=logit_scaled(pmax(pmin(surv_01, 0.999), 0.001))),
+              shape=1, height=0.025, width=0.05) +
+  labs(x="log holdfast diameter (cm)", y="Annual survival probability")
+
+
 ```
 
 
@@ -378,9 +439,11 @@ ggplot(rcr.df, aes(maxAge_yrs)) + geom_histogram() +
 ggplot(rcr.df, aes(Holdfast)) + geom_histogram() +
   scale_x_continuous(trans="log1p") + facet_grid(Management~Monitoring)
 
-ggplot(rcr.df, aes(factor(Monitoring), fill=Management)) + geom_bar(position="dodge") + 
+ggplot(rcr.df, aes(factor(Monitoring), fill=Management)) + 
+  geom_bar(position="dodge") + 
   ggtitle("Number of recruits decreases with time")
-ggplot(rcr.df, aes(Management, fill=factor(Monitoring))) + geom_bar(position="fill") + 
+ggplot(rcr.df, aes(Management, fill=factor(Monitoring))) + 
+  geom_bar(position="fill") + 
   ggtitle("Number of recruits decreases with time, maybe more strongly in TURF")
 
 rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
