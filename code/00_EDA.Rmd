@@ -230,7 +230,7 @@ Growth_Surv <- read_csv(glue("{data.dir}Growth&Survival.csv")) %>%
            str_replace("Oct", "01-10") %>%
            str_replace("May", "01-05") %>%
            dmy()) %>%
-  mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest))
+  mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest)) 
 
 survey.i <- Growth_Surv %>%
   group_by(Site, Management, Patch, Monitoring) %>%
@@ -248,15 +248,8 @@ survey.i <- bind_rows(
          days_since_prevObs=as.numeric(Date_Obs - lag(Date_Obs)),
          days_since_prevObs=replace_na(days_since_prevObs, 0),
          days_to_nextObs=as.numeric(lead(Date_Obs) - Date_Obs))
-```
 
-
-
-
-# Survival
-We can link probability of survival to holdfast size x Management. With the magic of Hierarchical Bayesian modelling, we can annualize the estimated survival rates if we assume that the survival probability is constant throughout the year.
-```{r survival_plots}
-surv.df <- Growth_Surv %>% 
+Growth_Surv <- Growth_Surv %>%
   select(Site, Management, Patch, Monitoring, 
          Plant, Holdfast, Stipes, Total_Length) %>%
   left_join(., survey.i) %>%
@@ -265,11 +258,23 @@ surv.df <- Growth_Surv %>%
   arrange(Site, Patch, Plant, Monitoring) %>%
   group_by(Site, Patch, Plant) %>%
   mutate(doesSurvive=lead(Holdfast>0),
+         nextHoldfast=lead(Holdfast),
+         nextStipes=lead(Stipes),
+         nextLength=lead(Total_Length),
          maxAge_days=cumsum(days_since_prevObs),
          maxAge_yrs=maxAge_days/365,
          surv_01=as.numeric(doesSurvive),
          logHoldfast=log(Holdfast)) %>%
-  filter(!is.na(doesSurvive))
+  ungroup
+```
+
+
+
+
+# Survival
+We can link probability of survival to holdfast size x Management. With the magic of Hierarchical Bayesian modelling, we can annualize the estimated survival rates if we assume that the survival probability is constant throughout the year.
+```{r survival_plots}
+surv.df <- Growth_Surv %>% filter(!is.na(doesSurvive))
 
 surv.df %>% group_by(Management) %>%
   summarise(nPlants=n_distinct(paste(Site, Patch, Plant)),
@@ -290,27 +295,27 @@ ggplot(surv.df, aes(Holdfast, as.numeric(doesSurvive), colour=Management)) +
 # at least within reason. Here's an option expecting greater variability among
 # sites, then among plants, then among patches, and some nudged slopes.
 library(brms)
-out <- brm(bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
-              pSurvYr ~ logHoldfast * Management + 
-                (1+logHoldfast * Management|Site/Patch/Plant),
-              nl=T),
-           data=surv.df, init=0, family="bernoulli", chains=4, cores=4,
-           prior=c(prior(normal(0, 1), nlpar="pSurvYr"),
-                   prior(normal(-1, 1), nlpar="pSurvYr", coef="Intercept"),
-                   prior(normal(1, 1), nlpar="pSurvYr", coef="ManagementTURF"),
-                   prior(normal(0, 0.5), nlpar="pSurvYr", class="sd", lb=0, 
-                         group="Site"),
-                   prior(normal(0, 0.1), nlpar="pSurvYr", class="sd", lb=0,
-                         group="Site:Patch"),
-                   prior(normal(0, 0.25), nlpar="pSurvYr", class="sd", lb=0,
-                         group="Site:Patch:Plant")))
+out.s <- brm(bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
+                pSurvYr ~ logHoldfast*Management + 
+                  (1+logHoldfast*Management|Site/Patch/Plant),
+                nl=T),
+             data=surv.df, init=0, family="bernoulli", chains=4, cores=4,
+             prior=c(prior(normal(0, 1), nlpar="pSurvYr"),
+                     prior(normal(-1, 1), nlpar="pSurvYr", coef="Intercept"),
+                     prior(normal(1, 1), nlpar="pSurvYr", coef="ManagementTURF"),
+                     prior(normal(0, 0.5), nlpar="pSurvYr", class="sd", lb=0, 
+                           group="Site"),
+                     prior(normal(0, 0.1), nlpar="pSurvYr", class="sd", lb=0,
+                           group="Site:Patch"),
+                     prior(normal(0, 0.25), nlpar="pSurvYr", class="sd", lb=0,
+                           group="Site:Patch:Plant")))
 
 fitted.df <- expand_grid(logHoldfast=seq(-2.5,3.5,length.out=100),
             Management=levels(surv.df$Management)) %>%
   mutate(maxAge_yrs=1,
          Holdfast=exp(logHoldfast),
          Site=NA, Patch=NA, Plant=NA) %>%
-  bind_cols(posterior_epred(out, newdata=., nlpar="pSurvYr", 
+  bind_cols(posterior_epred(out.s, newdata=., nlpar="pSurvYr", 
                             ndraws=4000, re_formula=NA) %>%
                         t %>% as_tibble) %>%
   pivot_longer(starts_with("V"), names_to="iter", values_to="logit_p") %>%
@@ -336,34 +341,20 @@ fitted.df %>%
   geom_jitter(data=surv.df, aes(y=logit_scaled(pmax(pmin(surv_01, 0.999), 0.001))),
               shape=1, height=0.025, width=0.05) +
   labs(x="log holdfast diameter (cm)", y="Annual survival probability")
-
-
 ```
 
 
 
 # Growth
-We can link the holdfast size at t+1 to holdfast size at t x Management. Still to do: account for differences in number of days between monitoring surveys. Calculate seasonal or annual rates as possible.
+We can link the holdfast size at t+1 to holdfast size at t x Management. Like with mortality, we can assume a constant daily growth rate to account for differences in the number of days between surveys and calculate annualized growth rates by holdfast diameter.
 ```{r growth_plots}
 grow.df <- Growth_Surv %>% 
-  select(Site, Management, Patch, Monitoring, 
-         Plant, Holdfast, Stipes, Total_Length) %>%
-  left_join(., survey.i) %>%
-  arrange(Site, Patch, Plant, Monitoring) %>%
-  mutate(prevSurv=Monitoring-1) %>%
-  arrange(Site, Patch, Plant, Monitoring) %>%
-  group_by(Site, Patch, Plant) %>%
-  mutate(doesSurvive=lead(Holdfast>0),
-         nextHoldfast=lead(Holdfast),
-         nextStipes=lead(Stipes),
-         nextLength=lead(Total_Length),
-         maxAge_days=cumsum(days_since_prevObs),
-         maxAge_yrs=maxAge_days/365) %>%
   filter(doesSurvive) %>%
-  ungroup %>%
   mutate(annHoldfastGrowth=(nextHoldfast-Holdfast)/days_to_nextObs*365,
          annStipeGrowth=(nextStipes-Stipes)/days_to_nextObs*365,
-         annLengthGrowth=(nextLength-Total_Length)/days_to_nextObs*365)
+         annLengthGrowth=(nextLength-Total_Length)/days_to_nextObs*365,
+         nextHoldfastAnnual=Holdfast+annHoldfastGrowth,
+         logNextHoldfastAnnual=log(nextHoldfastAnnual))
 
 ggplot(grow.df, aes(Holdfast, Holdfast+annHoldfastGrowth)) + 
   geom_abline(colour="grey") +
@@ -393,6 +384,53 @@ ggplot(grow.df, aes(Total_Length, Total_Length+annLengthGrowth, colour=Managemen
   geom_point() + 
   stat_smooth(aes(group=Site), method="lm", formula=y~x+I(x^2), se=F, size=0.25) +
   stat_smooth(method="lm", formula=y~x+I(x^2)) 
+
+
+# log-log scale, heteroscedastic
+out.g <- brm(bf(logNextHoldfastAnnual ~ logHoldfast*Management + 
+                  (1+logHoldfast|Site/Patch/Plant),
+                sigma ~ logHoldfast*Management),
+             family="gaussian", data=grow.df, cores=4,
+             prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
+                     prior(normal(0, 0.1), class="sd", lb=0, group="Site:Patch"),
+                     prior(normal(0, 0.1), class="sd", lb=0, group="Site:Patch:Plant"),
+                     prior(normal(0, 1), class="b"),
+                     prior(normal(0, 1), class="b", dpar="sigma"),
+                     prior(normal(2, 1), class="Intercept"),
+                     prior(normal(0, 1), class="Intercept", dpar="sigma")))
+
+fitted.df <- expand_grid(Holdfast=seq(0.1,44,length.out=100),
+                         Management=levels(surv.df$Management)) %>%
+  mutate(yrs_to_next=1,
+         logHoldfast=log(Holdfast),
+         Site=NA, Patch=NA, Plant=NA)
+preds <- posterior_epred(out.g, newdata=fitted.df, re.form=NA)
+# preds <- posterior_predict(out.g, newdata=fitted.df, re.form=NA)
+fitted.df <- fitted.df %>%
+  mutate(pred_mn=colMeans(preds),
+         pred_lo=apply(preds, 2, function(x) quantile(x, probs=0.1)),
+         pred_hi=apply(preds, 2, function(x) quantile(x, probs=0.9)),
+         pred_emn=colMeans(exp(preds)),
+         pred_elo=apply(exp(preds), 2, function(x) quantile(x, probs=0.1)),
+         pred_ehi=apply(exp(preds), 2, function(x) quantile(x, probs=0.9)))
+fitted.df %>%
+  ggplot(aes(logHoldfast, pred_mn, colour=Management, fill=Management)) + 
+  geom_abline() +
+  geom_ribbon(aes(ymin=pred_lo, ymax=pred_hi), alpha=0.5, colour=NA) +
+  geom_line() +
+  geom_point(data=grow.df, aes(y=log(Holdfast+annHoldfastGrowth)), shape=1) +
+  labs(x="Holdfast diameter (t)", y="Holdfast diameter (t+1)")
+
+fitted.df %>%
+  ggplot(aes(Holdfast, pred_emn, colour=Management, fill=Management)) + 
+  geom_abline() +
+  geom_ribbon(aes(ymin=pred_elo, ymax=pred_ehi), alpha=0.5, colour=NA) +
+  geom_line() +
+  geom_point(data=grow.df, aes(y=Holdfast+annHoldfastGrowth), shape=1) +
+  labs(x="Holdfast diameter (t)", y="Holdfast diameter (t+1)") +
+  xlim(0, 50) + ylim(0, 50)
+
+
 ```
 
 
