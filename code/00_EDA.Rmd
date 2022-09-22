@@ -387,9 +387,9 @@ ggplot(grow.df, aes(Total_Length, Total_Length+annLengthGrowth, colour=Managemen
 
 
 # log-log scale, heteroscedastic
-out.g <- brm(bf(logNextHoldfastAnnual ~ logHoldfast*Management + 
+out.g <- brm(bf(logNextHoldfastAnnual ~ logHoldfast + 
                   (1+logHoldfast|Site/Patch/Plant),
-                sigma ~ logHoldfast*Management),
+                sigma ~ logHoldfast),
              family="gaussian", data=grow.df, cores=4,
              prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
                      prior(normal(0, 0.1), class="sd", lb=0, group="Site:Patch"),
@@ -453,7 +453,7 @@ rcr.df <- Growth_Surv %>%
          maxAge_yrs=maxAge_days/365) %>%
   group_by(Site, Patch, Monitoring) %>%
   mutate(nPlants=sum(Holdfast>0),
-         totHoldfast=sum(Holdfast)) %>%
+         totHoldfast=sum(pi*(Holdfast/2)^2)) %>%
   ungroup %>%
   filter(newRecruit==TRUE) %>%
   filter(maxAge_yrs < 1.5) 
@@ -502,20 +502,20 @@ rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
 
 rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
   summarise(nRecruits=sum(newRecruit),
-            HoldfastRcr=sum(newRecruit*Holdfast)) %>%
+            HoldfastRcr=sum(newRecruit*pi*(Holdfast/2)^2)) %>%
   ggplot(aes(totHoldfast-HoldfastRcr, nRecruits)) + 
   geom_jitter(width=0.2, height=0.2) +
   stat_smooth(method="lm", formula=y~log1p(x)) +
-  scale_y_continuous(trans="log1p") +
-  xlab("Total holdfast diameter of non-recruits")
+  scale_y_continuous(trans="log1p", limits=c(0,NA)) +
+  xlab("Total holdfast area of non-recruits")
 rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
   summarise(nRecruits=sum(newRecruit),
-            HoldfastRcr=sum(newRecruit*Holdfast)) %>%
+            HoldfastRcr=sum(newRecruit*pi*(Holdfast/2)^2)) %>%
   ggplot(aes(totHoldfast-HoldfastRcr, nRecruits, colour=Management)) + geom_jitter() +
   stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
   stat_smooth(method="lm", formula=y~log1p(x), size=1) +
-  scale_y_continuous(trans="log1p") +
-  xlab("Total holdfast diameter of non-recruits")
+  scale_y_continuous(trans="log1p", limits=c(0,NA)) +
+  xlab("Total holdfast area of non-recruits")
 
 # The recruit size distribution seems to change with time-since-harvest.
 # Mainly small recruits at the start, then larger recruits at TURF sites as 
