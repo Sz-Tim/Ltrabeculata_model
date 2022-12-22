@@ -1,0 +1,188 @@
+# KELPER2
+# helper functions
+# Tim Szewczyk
+
+
+
+# Miscellaneous helper functions
+
+
+
+# aliases -----------------------------------------------------------------
+
+invlogit <- brms::inv_logit_scaled
+logit <- brms::logit_scaled
+
+
+
+
+# Generate a sequence with log-scaled spacing
+seq_ln <- function(from=1, to=1, length.out=10) {
+  ln_from <- log(from)
+  ln_to <- log(to)
+  exp(seq(log(from), log(to), length.out=length.out))
+}
+
+
+
+
+
+# IPM wrapper -------------------------------------------------------------
+
+
+# !! deprecated !! use build_IPM
+run_ipmr <- function(param.ls, mesh.ls, N.init) {
+  init_ipm(sim_gen="simple",
+           di_dd="dd",
+           det_stoch="det") %>%
+    define_kernel(
+      name="P",
+      formula=s * G * s_densEffect,
+      family="CC",
+      G=dnorm(z_2, mu_g, sd_g),
+      mu_g=posterior_epred(grow_mod, re.form=re.form, ndraws=ndraws,
+                           newdata=tibble(logHoldfast=z_1, Management=mgmt)) %>%
+        colMeans(),
+      s=posterior_epred(surv_mod, re.form=re.form, ndraws=ndraws, nlpar="pSurvYr",
+                        newdata=tibble(logHoldfast=z_1, Management=mgmt, maxAge_yrs=1)) %>%
+        colMeans() %>% brms::inv_logit_scaled(),
+      s_densEffect=1,
+      # s_densEffect=max(0, min(1, 1 - ((sum(n_z_t * pi * (exp(z_1)/2)^2) - cumsum(n_z_t * pi * (exp(z_1)/2)^2))/K)^0.5 ) ),
+      # s_densEffect=max(0, min(1, (1 - (sum(n_z_t) - cumsum(n_z_t))/K ))),
+      data_list=param.ls,
+      states=list(c('z')),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "G")
+    ) %>% 
+    define_kernel(
+      name="F",
+      formula=r_s * r_d,
+      family="CC",
+      r_s=posterior_epred(recr_mod, re.form=re.form, ndraws=ndraws,
+                          newdata=tibble(Adult=sum(n_z_t*(z_1>log(10))), Management=mgmt)) %>%
+        colMeans(),
+      r_d=dnorm(z_2, recr_mu, recr_sd),
+      data_list=param.ls,
+      states=list(c("z")),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "r_d")
+    ) %>% 
+    define_impl(
+      make_impl_args_list(
+        kernel_names=c("P", "F"),
+        int_rule=rep('midpoint', 2),
+        state_start=rep('z', 2),
+        state_end=rep('z', 2)
+      )
+    ) %>% 
+    define_domains(z=c(mesh.ls$L, mesh.ls$U, mesh.ls$n_mesh_p)) %>% 
+    define_pop_state(n_z=N.init) %>% 
+    make_ipm(iterate=TRUE, iterations=mesh.ls$n_yr)
+}
+
+
+# !! deprecated !! use build_IPM
+run_ipmr_regMan <- function(param.ls, mesh.ls, N.init) {
+  
+  IPM <- init_ipm(sim_gen="simple",
+                  di_dd="dd",
+                  det_stoch="det") %>%
+    define_kernel(
+      name="P",
+      formula=s * G,
+      family="CC",
+      G=dnorm(z_2, mu_g, sd_g),
+      mu_g=coef.g[1] + coef.g[2]*z_1,
+      s=plogis(coef.s[1] + coef.s[2]*z_1 + 
+                 coef.s[3]*(mgmt=="TURF") + coef.s[4]*z_1*(mgmt=="TURF") +
+                 s_dd),
+      # s_dd=s_DD * (sum(n_z_t) - cumsum(n_z_t)),
+      s_dd=s_DD * sqrt((sum(n_z_t * pi * (exp(z_1)/2)^2) - cumsum(n_z_t * pi * (exp(z_1)/2)^2))),
+      coef.s=colMeans(fixef(surv_mod, summary=F)[sample.int(4000, ndraws),]),
+      coef.g=colMeans(fixef(grow_mod, summary=F)[sample.int(4000, ndraws),]),
+      data_list=param.ls,
+      states=list(c('z')),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "G")
+    ) %>% 
+    define_kernel(
+      name="F",
+      formula=r_s * r_d,
+      family="CC",
+      r_s=posterior_epred(recr_mod, re.form=re.form, ndraws=ndraws,
+                          newdata=tibble(Adult=sum(n_z_t*(z_1>log(adultThresh))), Management=mgmt)) %>%
+        colMeans(),
+      r_d=dnorm(z_2, recr_mu, recr_sd),
+      data_list=param.ls,
+      states=list(c("z")),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "r_d")
+    ) %>% 
+    define_impl(
+      make_impl_args_list(
+        kernel_names=c("P", "F"),
+        int_rule=rep('midpoint', 2),
+        state_start=rep('z', 2),
+        state_end=rep('z', 2)
+      )
+    ) %>% 
+    define_domains(z=c(mesh.ls$L, mesh.ls$U, mesh.ls$n_mesh_p)) %>% 
+    define_pop_state(n_z=N.init) %>% 
+    make_ipm(iterate=TRUE, iterations=mesh.ls$n_yr)
+}
+
+
+build_IPM <- function(par.ls, mesh.ls) {
+  
+  init_ipm(sim_gen="simple",
+           di_dd="dd",
+           det_stoch="det") %>%
+    define_kernel(
+      name="P",
+      formula=s*G,
+      family="CC",
+      G=dnorm(z_2, mu_g, sd_g),
+      mu_g=b.g[1] + b.g[2]*z_1,
+      b.g=fixef(out_g, summary=F)[draw,],
+      sd_g=c(as.matrix(out_g, variable="sigma", draw=draw)),
+      s=plogis(b.s[1] + b.s[2]*z_1 + b.s[3]*(mgmt=="TURF") + b.s[4]*z_1*(mgmt=="TURF") + s_dd),
+      b.s=fixef(out_s, summary=F)[draw,],
+      s_dd=s_DD * sqrt((sum(n_z_t * pi * (exp(z_1)/2)^2) - cumsum(n_z_t * pi * (exp(z_1)/2)^2))),
+      data_list=par.ls,
+      states=list(c('z')),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "G")
+    ) %>% 
+    define_kernel(
+      name="F",
+      formula=r_s*r_d,
+      family="CC",
+      r_s=posterior_epred(out_r, re.form=NA, ndraws=1,
+                          newdata=tibble(Adult=sum(n_z_t*(z_1>log(adultThresh))), Management=mgmt)),
+      r_d=dnorm(z_2, mu_rcr, sd_rcr),
+      mu_rcr=c(posterior_epred(out_r_z, re.form=NA, ndraws=1,
+                               newdata=tibble(Management=mgmt))),
+      sd_rcr=c(as.matrix(out_r_z, variable="sigma", draw=draw)),
+      
+      data_list=par.ls,
+      states=list(c("z")),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "r_d")
+    ) %>% 
+    define_impl(
+      make_impl_args_list(
+        kernel_names=c("P", "F"),
+        int_rule=rep('midpoint', 2),
+        state_start=rep('z', 2),
+        state_end=rep('z', 2)
+      )
+    ) %>% 
+    define_domains(z=c(mesh.ls$L, mesh.ls$U, mesh.ls$n_mesh_p))
+}
+
+
+
+
+# IPM analysis ------------------------------------------------------------
+
+
