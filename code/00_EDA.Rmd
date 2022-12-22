@@ -135,12 +135,30 @@ ggplot(morph.df, aes(Holdfast, LengthTot, colour=source)) +
   scale_x_continuous("Holdfast diameter", trans="log1p") +
   scale_y_continuous(trans="log1p")
 
-ggplot(morph.df, aes(Holdfast, WeightTot, colour=source)) + 
+ggplot(morph.df, aes(Holdfast, LengthTot, colour=Management)) + 
   geom_point(alpha=0.5, shape=1) + 
   stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site),
               formula=y~x+I(x^2)) +
-  stat_smooth(method="lm", se=F, size=0.75, aes(group=source),
+  stat_smooth(method="lm", se=T, size=0.75, aes(group=Management),
               formula=y~x+I(x^2)) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+
+ggplot(morph.df, aes(Holdfast, WeightTot, colour=source)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site),
+              formula=y~x) +
+  stat_smooth(method="lm", se=F, size=0.75, aes(group=source),
+              formula=y~x) +
+  scale_x_continuous("Holdfast diameter", trans="log1p") +
+  scale_y_continuous(trans="log1p")
+
+ggplot(morph.df, aes(Holdfast, WeightTot, colour=Management)) + 
+  geom_point(alpha=0.5, shape=1) + 
+  stat_smooth(method="lm", se=F, size=0.5, linetype=3, aes(group=Site),
+              formula=y~x) +
+  stat_smooth(method="lm", se=T, size=0.75, aes(group=Management),
+              formula=y~x) +
   scale_x_continuous("Holdfast diameter", trans="log1p") +
   scale_y_continuous(trans="log1p")
 
@@ -207,8 +225,50 @@ ggplot(morph.df, aes(Holdfast, colour=factor(Reproductive))) +
 
 
 # Density
+```{r density_loadData}
+dens.df <- bind_rows(
+  read_csv(glue("{data.dir}IFOP_Kelp_density.csv"), na=c("NaN", "")) %>% 
+    filter(Species=="Lessonia trabeculata") %>%
+    mutate(source="IFOP",
+           Date=ymd(paste(Year, Month, Day, sep="-")),
+           Stage=if_else(Stage=="Adulto", "Adult", "Juvenile"),
+           Density_m2=Abundance/20) %>%
+    select(source, Management, Date, Site, Transect, Station, Depth, Stage, Density_m2) %>%
+    group_by(source, Management, Date, Site, Transect, Station, Depth, Stage) %>%
+    summarise(Density_m2=mean(Density_m2)) %>%
+    ungroup,
+  read_csv(glue("{data.dir}Kelp_transect.csv")) %>%
+    mutate(source="NERC_bl",
+           Density_m2=Density) %>%
+    select(source, Management, Zone, Date, MAE, Site, Transect, Station, Depth, Stage, Density_m2),
+  read_csv(glue("{data.dir}Patches_quad.csv")) %>%
+    filter(Species=="Lessonia trabeculata") %>%
+    mutate(source="NERC_ph",
+           Density_m2=Density) %>%
+    select(source, Management, Zone, Date, MAE, Site, Patch, Quad, Stage, Density_m2)
+)
 
-To come.
+```
+
+```{r density_plots}
+dens.df %>% 
+  pivot_wider(names_from=Stage, values_from=Density_m2) %>% 
+  ggplot(aes(Adult, Juvenile)) + 
+  geom_point(shape=1, alpha=0.25) + 
+  geom_line(aes(group=Site), stat="smooth", method="lm", se=F, colour="blue") + 
+  scale_y_continuous(trans="log1p") +
+  scale_x_continuous(trans="log1p") +
+  facet_grid(Management~source)
+
+dens.df %>% filter(source=="NERC_bl") %>%
+  ggplot(aes(Density_m2, fill=Management)) + geom_histogram(binwidth=0.5, position="dodge") + 
+  facet_wrap(~Stage)
+
+```
+
+
+
+
 
 
 
@@ -230,7 +290,8 @@ Growth_Surv <- read_csv(glue("{data.dir}Growth&Survival.csv")) %>%
            str_replace("Oct", "01-10") %>%
            str_replace("May", "01-05") %>%
            dmy()) %>%
-  mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest)) 
+  mutate(days_since_harvest=as.numeric(Date_Obs - Date_Harvest)) %>%
+  filter(!is.na(Site))
 
 survey.i <- Growth_Surv %>%
   group_by(Site, Management, Patch, Monitoring) %>%
@@ -387,8 +448,8 @@ ggplot(grow.df, aes(Total_Length, Total_Length+annLengthGrowth, colour=Managemen
 
 
 # log-log scale, heteroscedastic
-out.g <- brm(bf(logNextHoldfastAnnual ~ logHoldfast + 
-                  (1+logHoldfast|Site/Patch/Plant),
+out.g <- brm(bf(logNextHoldfastAnnual ~ logHoldfast*Management + 
+                  (1+logHoldfast*Management|Site/Patch/Plant),
                 sigma ~ logHoldfast),
              family="gaussian", data=grow.df, cores=4,
              prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
@@ -440,7 +501,7 @@ fitted.df %>%
 # Recruitment
 We can estimate size distributions of recruits by management, and estimate the number of recruits as a function of the number or size of non-recruits in the plot. **TODO:** Account for  the differences in time between monitoring periods to annualize somehow.
 ```{r recruitment_plots}
-rcr.df <- Growth_Surv %>% 
+rcrSize.df <- Growth_Surv %>% 
   select(Site, Management, Patch, Monitoring, 
          Plant, Holdfast, Stipes, Total_Length) %>%
   left_join(., survey.i) %>%
@@ -448,74 +509,100 @@ rcr.df <- Growth_Surv %>%
   mutate(prevSurv=Monitoring-1) %>%
   arrange(Site, Patch, Plant, Monitoring) %>%
   group_by(Site, Patch, Plant) %>%
-  mutate(newRecruit=is.na(lag(Holdfast)),
-         maxAge_days=cumsum(days_since_prevObs),
+  mutate(maxAge_days=cumsum(days_since_prevObs),
          maxAge_yrs=maxAge_days/365) %>%
   group_by(Site, Patch, Monitoring) %>%
   mutate(nPlants=sum(Holdfast>0),
          totHoldfast=sum(pi*(Holdfast/2)^2)) %>%
   ungroup %>%
-  filter(newRecruit==TRUE) %>%
-  filter(maxAge_yrs < 1.5) 
+  filter(Monitoring==1,
+         Holdfast < 10)
+
+rcrDens.df <- read_csv(glue("{data.dir}Patches_quad.csv")) %>%
+  filter(Species=="Lessonia trabeculata") %>%
+  mutate(Site=factor(Site),
+         Zone=factor(Zone),
+         Management=factor(Management),
+         Upwelling=factor(Upwelling),
+         Stage=factor(Stage))
+ggplot(rcrDens.df, aes(MAE, Density)) + geom_point(alpha=0.5) +
+  facet_grid(Stage~Management)
+ggplot(rcrDens.df, aes(factor(MAE), Density)) + geom_boxplot() +
+  scale_y_continuous(trans="log1p") +
+  facet_grid(Stage~Management)
+ggplot(rcrDens.df, aes(Density, colour=Stage)) + 
+  geom_density(alpha=0.5) +
+  scale_x_continuous(trans="log1p") +
+  facet_grid(MAE~Management)
+
+rcrDens.df %>% select(-...1) %>%
+  pivot_wider(names_from=Stage, values_from=Density) %>%
+  ggplot(aes(Adult, Juvenile)) + 
+  geom_jitter(alpha=0.5, width=0.1, height=0.1, aes(colour=Management)) +
+  facet_wrap(~MAE)
+
+rcrDens.df %>% select(-...1) %>%
+  pivot_wider(names_from=Stage, values_from=Density) %>%
+  ggplot(aes(Adult, Juvenile)) + 
+  geom_jitter(alpha=0.5, width=0.1, height=0.1, aes(colour=Management)) +
+  stat_smooth(method="lm") +
+  scale_y_continuous(trans="log1p")
+
 
 
 # Some bias in measurements: preference for 0.2, 10 cm
-table(rcr.df$Holdfast)
+table(rcrSize.df$Holdfast)
 
-ggplot(rcr.df, aes(Holdfast)) + geom_density() + 
+ggplot(rcrSize.df, aes(Holdfast)) + geom_density() + 
   ggtitle("Recruit size distr.") +
   scale_x_continuous(trans="log1p")
-ggplot(rcr.df, aes(Holdfast, colour=Management)) + 
+ggplot(rcrSize.df, aes(Holdfast, colour=Management)) + 
   geom_density(aes(group=Site), size=0.25) + 
   geom_density(size=1) +
   ggtitle("Recruit size distr.") +
   scale_x_continuous(trans="log1p")
 
-ggplot(rcr.df, aes(maxAge_yrs)) + geom_histogram() +
+ggplot(rcrSize.df, aes(maxAge_yrs)) + geom_histogram() +
   ggtitle("Recruit max possible age")
 
-ggplot(rcr.df, aes(Holdfast)) + geom_histogram() +
-  scale_x_continuous(trans="log1p") + facet_grid(Management~Monitoring)
+ggplot(rcrSize.df, aes(Holdfast)) + geom_histogram() +
+  scale_x_continuous(trans="log1p") + facet_grid(Management~.)
 
-ggplot(rcr.df, aes(factor(Monitoring), fill=Management)) + 
-  geom_bar(position="dodge") + 
-  ggtitle("Number of recruits decreases with time")
-ggplot(rcr.df, aes(Management, fill=factor(Monitoring))) + 
-  geom_bar(position="fill") + 
-  ggtitle("Number of recruits decreases with time, maybe more strongly in TURF")
 
-rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
-  summarise(nRecruits=sum(newRecruit)) %>%
-  ggplot(aes(nPlants-nRecruits, nRecruits)) + 
-  geom_jitter(width=0.2, height=0.2) +
-  stat_smooth(method="lm", formula=y~log1p(x)) +
-  scale_y_continuous(trans="log1p") +
-  xlab("Number of non-recruits")
-rcr.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
-  summarise(nRecruits=sum(newRecruit)) %>%
-  ggplot(aes(nPlants-nRecruits, nRecruits, colour=Management)) + 
-  geom_jitter(width=0.2, height=0.2) +
-  stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
-  stat_smooth(method="lm", formula=y~log1p(x), size=1) +
-  scale_y_continuous(trans="log1p") +
-  xlab("Number of non-recruits")
-
-rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
-  summarise(nRecruits=sum(newRecruit),
-            HoldfastRcr=sum(newRecruit*pi*(Holdfast/2)^2)) %>%
-  ggplot(aes(totHoldfast-HoldfastRcr, nRecruits)) + 
-  geom_jitter(width=0.2, height=0.2) +
-  stat_smooth(method="lm", formula=y~log1p(x)) +
-  scale_y_continuous(trans="log1p", limits=c(0,NA)) +
-  xlab("Total holdfast area of non-recruits")
-rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
-  summarise(nRecruits=sum(newRecruit),
-            HoldfastRcr=sum(newRecruit*pi*(Holdfast/2)^2)) %>%
-  ggplot(aes(totHoldfast-HoldfastRcr, nRecruits, colour=Management)) + geom_jitter() +
-  stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
-  stat_smooth(method="lm", formula=y~log1p(x), size=1) +
-  scale_y_continuous(trans="log1p", limits=c(0,NA)) +
-  xlab("Total holdfast area of non-recruits")
+# THIS DOES NOT WORK WITH THIS DATASET!
+# TODO: These calculations but with density (patches_quad.csv)
+# rcrSize.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
+#   summarise(nRecruits=sum(newRecruit)) %>%
+#   ggplot(aes(nPlants-nRecruits, nRecruits)) + 
+#   geom_jitter(width=0.2, height=0.2) +
+#   stat_smooth(method="lm", formula=y~log1p(x)) +
+#   scale_y_continuous(trans="log1p") +
+#   xlab("Number of non-recruits")
+# rcrSize.df %>% group_by(Site, Management, Patch, Monitoring, nPlants) %>%
+#   summarise(nRecruits=sum(newRecruit)) %>%
+#   ggplot(aes(nPlants-nRecruits, nRecruits, colour=Management)) + 
+#   geom_jitter(width=0.2, height=0.2) +
+#   stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
+#   stat_smooth(method="lm", formula=y~log1p(x), size=1) +
+#   scale_y_continuous(trans="log1p") +
+#   xlab("Number of non-recruits")
+# 
+# rcrSize.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
+#   summarise(nRecruits=sum(newRecruit),
+#             HoldfastRcr=sum(newRecruit*pi*(Holdfast/2)^2)) %>%
+#   ggplot(aes(totHoldfast-HoldfastRcr, nRecruits)) + 
+#   geom_jitter(width=0.2, height=0.2) +
+#   stat_smooth(method="lm", formula=y~log1p(x)) +
+#   scale_y_continuous(trans="log1p", limits=c(0,NA)) +
+#   xlab("Total holdfast area of non-recruits")
+# rcrSize.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
+#   summarise(nRecruits=sum(newRecruit),
+#             HoldfastRcr=sum(newRecruit*pi*(Holdfast/2)^2)) %>%
+#   ggplot(aes(totHoldfast-HoldfastRcr, nRecruits, colour=Management)) + geom_jitter() +
+#   stat_smooth(aes(group=Site), method="lm", formula=y~log1p(x), se=F, size=0.25) +
+#   stat_smooth(method="lm", formula=y~log1p(x), size=1) +
+#   scale_y_continuous(trans="log1p", limits=c(0,NA)) +
+#   xlab("Total holdfast area of non-recruits")
 
 # The recruit size distribution seems to change with time-since-harvest.
 # Mainly small recruits at the start, then larger recruits at TURF sites as 
@@ -525,39 +612,39 @@ rcr.df %>% group_by(Site, Management, Patch, Monitoring, totHoldfast) %>%
 
 # How does this interact with higher survival rates and faster growth rates in TURF?
 # Lower establishment, but better survival and growth once established?
-ggplot(rcr.df, aes(days_since_harvest, Holdfast)) + 
-  geom_jitter(width=10, height=0.1) + 
-  stat_smooth(span=1.5) +
-  ggtitle("Recruit size vs. time since clearance") +
-  scale_y_continuous(trans="log1p")
-ggplot(rcr.df, aes(days_since_harvest, Holdfast, colour=Management)) + 
-  geom_jitter(width=10, height=0.1) + 
-  stat_smooth(aes(group=Site), span=1.5, se=F, size=0.25) +
-  stat_smooth(span=1.5) +
-  ggtitle("Recruit size vs. time since clearance") +
-  scale_y_continuous(trans="log1p")
-
-ggplot(rcr.df, aes(Holdfast, colour=factor(Monitoring))) + 
-  geom_density(aes(group=paste(Site, Monitoring)), adjust=1.5) + 
-  ggtitle("Recruit size vs. time since clearance") +
-  scale_y_continuous(trans="log1p") +
-  facet_wrap(~Management)
-
-rcr.df %>% group_by(Site, Management, Patch, Monitoring, days_since_harvest) %>%
-  summarise(nRecruits=sum(newRecruit)) %>%
-  ggplot(aes(days_since_harvest, nRecruits)) + 
-  geom_jitter(width=10, height=0.1) + 
-  stat_smooth(span=1.5) +
-  ggtitle("Number of recruits vs. time since clearance") +
-  scale_y_continuous(trans="log1p")
-rcr.df %>% group_by(Site, Management, Patch, Monitoring, days_since_harvest) %>%
-  summarise(nRecruits=sum(newRecruit)) %>%
-  ggplot(aes(days_since_harvest, nRecruits, colour=Management)) + 
-  geom_jitter(width=10, height=0.1) + 
-  stat_smooth(aes(group=Site), span=1.5, se=F, size=0.25) +
-  stat_smooth(span=1.5) +
-  ggtitle("Number of recruits vs. time since clearance") +
-  scale_y_continuous(trans="log1p")
+# ggplot(rcrSize.df, aes(days_since_harvest, Holdfast)) + 
+#   geom_jitter(width=10, height=0.1) + 
+#   stat_smooth(span=1.5) +
+#   ggtitle("Recruit size vs. time since clearance") +
+#   scale_y_continuous(trans="log1p")
+# ggplot(rcrSize.df, aes(days_since_harvest, Holdfast, colour=Management)) + 
+#   geom_jitter(width=10, height=0.1) + 
+#   stat_smooth(aes(group=Site), span=1.5, se=F, size=0.25) +
+#   stat_smooth(span=1.5) +
+#   ggtitle("Recruit size vs. time since clearance") +
+#   scale_y_continuous(trans="log1p")
+# 
+# ggplot(rcrSize.df, aes(Holdfast, colour=factor(Monitoring))) + 
+#   geom_density(aes(group=paste(Site, Monitoring)), adjust=1.5) + 
+#   ggtitle("Recruit size vs. time since clearance") +
+#   scale_y_continuous(trans="log1p") +
+#   facet_wrap(~Management)
+# 
+# rcrSize.df %>% group_by(Site, Management, Patch, Monitoring, days_since_harvest) %>%
+#   summarise(nRecruits=sum(newRecruit)) %>%
+#   ggplot(aes(days_since_harvest, nRecruits)) + 
+#   geom_jitter(width=10, height=0.1) + 
+#   stat_smooth(span=1.5) +
+#   ggtitle("Number of recruits vs. time since clearance") +
+#   scale_y_continuous(trans="log1p")
+# rcrSize.df %>% group_by(Site, Management, Patch, Monitoring, days_since_harvest) %>%
+#   summarise(nRecruits=sum(newRecruit)) %>%
+#   ggplot(aes(days_since_harvest, nRecruits, colour=Management)) + 
+#   geom_jitter(width=10, height=0.1) + 
+#   stat_smooth(aes(group=Site), span=1.5, se=F, size=0.25) +
+#   stat_smooth(span=1.5) +
+#   ggtitle("Number of recruits vs. time since clearance") +
+#   scale_y_continuous(trans="log1p")
 ```
 
 
