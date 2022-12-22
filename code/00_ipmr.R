@@ -257,7 +257,7 @@ predict_method_carpobrotus <-
 
 # lessonia ----------------------------------------------------------------
 
-library(tidyverse); library(glue); library(lubridate)
+library(tidyverse); library(glue); library(lubridate); library(brms); library(ipmr)
 theme_set(theme_bw())
 
 data.dir <- "data/chile/"
@@ -339,8 +339,8 @@ grow.df <- Growth_Surv %>%
          annLengthGrowth=(nextLength-Total_Length)/days_to_nextObs*365,
          nextHoldfastAnnual=Holdfast+annHoldfastGrowth,
          logNextHoldfastAnnual=log(nextHoldfastAnnual))
-out.g <- brm(bf(logNextHoldfastAnnual ~ logHoldfast*Management + 
-                  (1+logHoldfast*Management|Site/Patch/Plant)),
+out.g <- brm(bf(logNextHoldfastAnnual ~ logHoldfast + 
+                  (1+logHoldfast|Site/Patch/Plant)),
              family="gaussian", data=grow.df, cores=4,
              prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
                      prior(normal(0, 0.1), class="sd", lb=0, group="Site:Patch"),
@@ -390,128 +390,53 @@ out.r <- brm(bf(Juvenile ~ Adult + (1|Site),
              file="temp/out_r.rds")
 
 
-L <- log(0.1) * 1.2 
-U <- max(Growth_Surv$logHoldfast, na.rm = TRUE) * 1.2 
-n_mesh_p <- 100
-nSim <- 10
-  
-n_iter <- 20
-pred_par_list <-  list(
-  grow_mod = out.g,
-  sd_g = sd(resid(out.g)),
-  surv_mod = out.s,
-  recr_mu = mean(log(rcrSize.df$Holdfast)),
-  recr_sd = sd(log(rcrSize.df$Holdfast)),
-  recr_mod = out.r,
-  ndraws=10,
-  re.form=NA,
-  n_mesh_p=n_mesh_p
+size_rng <- range(log(Growth_Surv$Holdfast[Growth_Surv$Holdfast>0]), na.rm=T)
+nSim <- 20
+
+
+
+pred_par_list <- list(
+  grow_mod=out.g,
+  sd_g=sd(resid(out.g)),
+  surv_mod=out.s,
+  s_DD=-0.0025,
+  recr_mu=mean(log(rcrSize.df$Holdfast)),
+  recr_sd=sd(log(rcrSize.df$Holdfast)),
+  recr_mod=out.r,
+  ndraws=2,
+  re.form=NA
 ) 
+mesh.ls <- list(
+  L=size_rng[1] * 1.2,
+  U=size_rng[2] * 1.2,
+  n_mesh_p=30,
+  n_yr=20
+)
 
 for(i in 1:nSim) {
-  OA.ipm <- init_ipm(sim_gen = "simple",
-                     di_dd = "dd",
-                     det_stoch = "det") %>%
-    define_kernel(
-      name = "P",
-      formula = s * G,
-      family = "CC",
-      G = dnorm(z_2, mu_g, sd_g),
-      mu_g=colMeans(posterior_epred(grow_mod, 
-                                    newdata=tibble(logHoldfast=z_1,
-                                                   Management=mgmt),
-                                    re.form=re.form, ndraws=ndraws)),
-      s=brms::inv_logit_scaled(colMeans(posterior_epred(surv_mod, 
-                                                        newdata=tibble(logHoldfast=z_1, 
-                                                                       Management=mgmt, 
-                                                                       maxAge_yrs=1), 
-                                                        re.form=re.form, ndraws=ndraws, nlpar="pSurvYr"))),
-      data_list = c(pred_par_list, mgmt="OA"),
-      states = list(c('z')),
-      evict_cor = TRUE,
-      evict_fun = truncated_distributions("norm", "G")
-    ) %>% 
-    define_kernel(
-      name = "F",
-      formula = (r_s) * r_d,
-      family = "CC",
-      r_s=colMeans(posterior_epred(recr_mod,
-                                   newdata=tibble(Adult=sum(n_z_t),
-                                                  Management=mgmt),
-                                   re.form=re.form, ndraws=ndraws)),
-      r_d = dnorm(z_2, recr_mu, recr_sd),
-      data_list = c(pred_par_list, mgmt="OA"),
-      states = list(c("z")),
-      evict_cor = TRUE,
-      evict_fun = truncated_distributions("norm", "r_d")
-    ) %>% 
-    define_impl(
-      make_impl_args_list(
-        kernel_names = c("P", "F"),
-        int_rule = rep('midpoint', 2),
-        state_start = rep('z', 2),
-        state_end = rep('z', 2)
-      )
-    ) %>% 
-    define_domains(z = c(L, U, n_mesh_p)) %>% 
-    define_pop_state(n_z = c(1, rep(0, n_mesh_p-1))) %>% 
-    make_ipm(iterate = TRUE, iterations = n_iter)
+  # OA.ipm <- run_ipmr(param.ls=c(pred_par_list, mgmt="OA"),
+                     # mesh.ls=mesh.ls,
+                     # N.init=c(10, rep(0, mesh.ls$n_mesh_p-1)))
+  OA.ipm <- run_ipmr_regMan(param.ls=c(pred_par_list, mgmt="OA"),
+                             mesh.ls=mesh.ls,
+                             N.init=c(1, rep(1, mesh.ls$n_mesh_p-1)))
+  TURF.ipm <- run_ipmr_regMan(param.ls=c(pred_par_list, mgmt="TURF"),
+                              mesh.ls=mesh.ls,
+                              N.init=c(1, rep(1, mesh.ls$n_mesh_p-1)))
   
-  TURF.ipm <- init_ipm(sim_gen = "simple",
-                       di_dd = "dd",
-                       det_stoch = "det") %>%
-    define_kernel(
-      name = "P",
-      formula = s * G,
-      family = "CC",
-      G = dnorm(z_2, mu_g, sd_g),
-      mu_g=colMeans(posterior_epred(grow_mod, 
-                                    newdata=tibble(logHoldfast=z_1,
-                                                   Management=mgmt),
-                                    re.form=re.form, ndraws=ndraws)),
-      s=brms::inv_logit_scaled(colMeans(posterior_epred(surv_mod, 
-                                                        newdata=tibble(logHoldfast=z_1, 
-                                                                       Management=mgmt, 
-                                                                       maxAge_yrs=1), 
-                                                        re.form=re.form, ndraws=ndraws, nlpar="pSurvYr"))),
-      data_list = c(pred_par_list, mgmt="TURF"),
-      states = list(c('z')),
-      evict_cor = TRUE,
-      evict_fun = truncated_distributions("norm", "G")
-    ) %>% 
-    define_kernel(
-      name = "F",
-      formula = (r_s) * r_d,
-      family = "CC",
-      r_s=colMeans(posterior_epred(recr_mod,
-                                   newdata=tibble(Adult=sum(n_z_t),
-                                                  Management=mgmt),
-                                   re.form=re.form, ndraws=ndraws)),
-      r_d = dnorm(z_2, recr_mu, recr_sd),
-      data_list = c(pred_par_list, mgmt="TURF"),
-      states = list(c("z")),
-      evict_cor = TRUE,
-      evict_fun = truncated_distributions("norm", "r_d")
-    ) %>% 
-    define_impl(
-      make_impl_args_list(
-        kernel_names = c("P", "F"),
-        int_rule = rep('midpoint', 2),
-        state_start = rep('z', 2),
-        state_end = rep('z', 2)
-      )
-    ) %>% 
-    define_domains(z = c(L, U, n_mesh_p)) %>% 
-    define_pop_state(n_z = c(1, rep(0, n_mesh_p-1))) %>% 
-    make_ipm(iterate = TRUE, iterations = n_iter)
+  tibble(year=1:mesh.ls$n_yr, 
+         OA=c(lambda(OA.ipm)),
+         TURF=c(lambda(TURF.ipm))) %>%
+    pivot_longer(2:3, names_to="Management", values_to="lambda") %>%
+    saveRDS(glue("temp/lambda_{i}.rds"))
   mesh_info <- int_mesh(OA.ipm)
   pop.df <- bind_rows(
-    tibble(year=rep(1:(n_iter+1), each=n_mesh_p),
-           size_ln=rep(mesh_info$z_1[1:n_mesh_p], times=n_iter+1),
+    tibble(year=rep(1:(mesh.ls$n_yr+1), each=mesh.ls$n_mesh_p),
+           size_ln=rep(mesh_info$z_1[1:mesh.ls$n_mesh_p], times=mesh.ls$n_yr+1),
            N=c(OA.ipm$pop_state$n_z),
            Management="OA"),
-    tibble(year=rep(1:(n_iter+1), each=n_mesh_p),
-           size_ln=rep(mesh_info$z_1[1:n_mesh_p], times=n_iter+1),
+    tibble(year=rep(1:(mesh.ls$n_yr+1), each=mesh.ls$n_mesh_p),
+           size_ln=rep(mesh_info$z_1[1:mesh.ls$n_mesh_p], times=mesh.ls$n_yr+1),
            N=c(TURF.ipm$pop_state$n_z),
            Management="TURF")) %>%
     mutate(size=exp(size_ln),
@@ -528,46 +453,79 @@ for(i in 1:nSim) {
 
 
 
-
-plot(lambda(OA.ipm), type="l", ylim=c(0,2.5), xlab="Year", ylab="lambda")
-lines(1:(n_iter), lambda(TURF.ipm), col="steelblue")
-abline(h=1, lty=3)
+lam.df <- map_dfr(dir("temp", "lambda_", full.names=T), 
+                  ~readRDS(.x) %>%
+                    mutate(sim=str_sub(str_remove(.x, "temp/lambda_"), 1, -5)))
+lam.df %>%
+  mutate(lambda=log(lambda)) %>%
+  group_by(Management, year) %>%
+  summarise(lam_mn=mean(lambda), 
+            lam_lo=quantile(lambda, 0.025),
+            lam_hi=quantile(lambda, 0.975)) %>%
+  mutate(across(starts_with("lam"), exp)) %>%
+  ggplot(aes(year, lam_mn, colour=Management, fill=Management)) + 
+  geom_ribbon(aes(ymin=lam_lo, ymax=lam_hi), alpha=0.25, colour=NA) +
+  geom_line(size=1) +
+  labs(x="Year", y="lambda (mean + 95% CI)")
 
 
 pop.df <- map_dfr(dir("temp", "pop_", full.names=T), readRDS)
-ggplot(pop.df, aes(year, N, colour=size, group=size)) + 
-  geom_line(alpha=0.5) + scale_colour_viridis_c() + facet_wrap(~Management)
+# ggplot(pop.df, aes(year, N, colour=size, group=paste0(sim,size))) + 
+#   geom_line(alpha=0.5) + scale_colour_viridis_c() + facet_wrap(~Management)
 pop.df %>%
   group_by(sim, Management, year, sizeClass) %>%
   summarise(N=sum(N)) %>%
-  ggplot(aes(year, N, colour=sizeClass, group=paste(sim, sizeClass))) + 
-  geom_line(size=1, alpha=0.5) + scale_colour_viridis_d() +
-  facet_wrap(~Management)
+  group_by(Management, year, sizeClass) %>%
+  mutate(N=log(N)) %>%
+  summarise(N_mn=mean(N), N_lo=quantile(N, 0.025), N_hi=quantile(N, 0.975)) %>%
+  mutate(across(starts_with("N"), exp)) %>%
+  ggplot(aes(year, N_mn, colour=sizeClass, fill=sizeClass, group=sizeClass)) + 
+  geom_ribbon(aes(ymin=N_lo, ymax=N_hi), alpha=0.25, colour=NA) +
+  geom_line(size=1) + 
+  scale_colour_viridis_d() + scale_fill_viridis_d() +
+  facet_wrap(~Management) +
+  labs(x="Year", y="N/m2 (mean + 95% CIs)")
+pop.df %>%
+  group_by(sim, Management, year, stage) %>%
+  summarise(N=sum(N)) %>%
+  group_by(Management, year, stage) %>%
+  mutate(N=log(N)) %>%
+  summarise(N_mn=mean(N), N_lo=quantile(N, 0.025), N_hi=quantile(N, 0.975)) %>%
+  mutate(across(starts_with("N"), exp)) %>%
+  ggplot(aes(year, N_mn, colour=stage, fill=stage, group=stage)) + 
+  geom_ribbon(aes(ymin=N_lo, ymax=N_hi), alpha=0.25, colour=NA) +
+  geom_line(size=1) + 
+  facet_wrap(~Management) +
+  labs(x="Year", y="N/m2 (mean + 95% CIs)")
+pop.df %>%
+  group_by(sim, Management, year, stage) %>%
+  summarise(N=sum(N)) %>%
+  group_by(Management, year, stage) %>%
+  mutate(N=log(N)) %>%
+  summarise(N_mn=mean(N), N_lo=quantile(N, 0.025), N_hi=quantile(N, 0.975)) %>%
+  mutate(across(starts_with("N"), exp)) %>%
+  ggplot(aes(year, N_mn, colour=Management, fill=Management)) + 
+  geom_ribbon(aes(ymin=N_lo, ymax=N_hi), alpha=0.25, colour=NA) +
+  geom_line(size=1) + 
+  facet_wrap(~stage, scales="free_y") +
+  labs(x="Year", y="N/m2 (mean + 95% CIs)")
 pop.df %>%
   group_by(sim, Management, year, stage) %>%
   summarise(N=sum(N)) %>%
   ggplot(aes(year, N, colour=stage, group=paste(sim, stage))) + 
   geom_line(alpha=0.5) + 
   facet_wrap(~Management)
+pop.df %>%
+  group_by(sim, Management, year, stage) %>%
+  summarise(N=sum(N)) %>%
+  ggplot(aes(year, N, colour=stage, group=paste(sim, stage))) + 
+  geom_line(alpha=0.5) + 
+  facet_wrap(~Management) +
+  scale_y_continuous(trans="log1p") 
 
-mesh_info <- int_mesh(lessonia.ipm)
-sens_mat <- sens(lessonia.ipm, mesh_info$d_z) 
-elas_mat <- elas(lessonia.ipm, mesh_info$d_z)
-R0 <- R_nought(lessonia.ipm) 
-gen_T <- gen_time(lessonia.ipm)
+pop.df %>%
+  mutate(area=N * pi * (size/2)^2) %>%
+  group_by(sim, Management, year) %>%
+  summarise(area=sum(area)) %>%
+  ggplot(aes(year, area, group=sim)) + geom_line() + facet_wrap(~Management)
 
-
-library(ggplot2) 
-library(gridExtra) 
-p_df <- ipm_to_df(lessonia.ipm$sub_kernels$P)
-f_df <- ipm_to_df(lessonia.ipm$sub_kernels$F) 
-K_df <- p_df %>% rename(P=value) %>% mutate(F=f_df$value, K=P+F)
-# sens_df <- ipm_to_df(sens_mat)
-# elas_df <- ipm_to_df(elas_mat)
-
-ggplot(K_df, aes(x=t, y=t_1, fill=K)) + 
-  geom_tile() + 
-  scale_fill_gradient("Value", low="dodgerblue", high=scales::muted("red")) +
-  scale_x_continuous(name = "size (t)") + 
-  scale_y_continuous(name = "size (t + 1)") + 
-  theme(legend.title = element_blank()) + ggtitle("K kernel")
