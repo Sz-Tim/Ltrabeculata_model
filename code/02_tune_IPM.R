@@ -12,8 +12,12 @@ library(doParallel); library(foreach)
 source("code/00_fn.R")
 
 reg.dir <- "out/regr/"
-tune.dir <- "out/dd_tune_noSqrt/"
+nSim <- 500
+cores <- 10
+N.init_rcr <- 5
+s_DD_pow <- 1
 s_DD.seq <- seq(0, -0.00025, length.out=16)
+tune.dir <- glue("out/dd_tune_pow_{s_DD_pow}/")
 
 
 
@@ -24,12 +28,12 @@ for(s in 1:length(s_DD.seq)) {
   out.dir <- glue("{tune.dir}/sdd-{str_pad(s, 2, 'left', '0')}/")
   dir.create(out.dir, recursive=T)
   
-  nSim=200
   dd.i <- list(
     size_rng=log(c(0.1, 50)),
     nYrs=40,
     harvestYr=10,
     s_DD=s_DD.seq[s],
+    s_DD_pow=s_DD_pow,
     ndraws=1
   )
   mesh.ls=list(
@@ -41,7 +45,7 @@ for(s in 1:length(s_DD.seq)) {
   
   saveRDS(dd.i, glue("{out.dir}/dd_i.rds"))
   
-  cl <- makeCluster(10)
+  cl <- makeCluster(cores)
   registerDoParallel(cl)
   foreach(i=1:nSim,
           .export=c("reg.dir", "out.dir", "dd.i"),
@@ -59,6 +63,7 @@ for(s in 1:length(s_DD.seq)) {
               out_g=out.g,
               out_s=out.s,
               s_DD=dd.i$s_DD,
+              s_DD_pow=dd.i$s_DD_pow,
               out_r=out.r,
               out_r_z=out.r_z,
               draw=i,
@@ -70,7 +75,11 @@ for(s in 1:length(s_DD.seq)) {
                              TURF=NA)
             pop.ls <- vector("list", length=dd.i$nYrs)
             
-            N.init <- c(1, rep(0, mesh.ls$n_mesh_p-1))
+            N.init <- dnorm(seq(mesh.ls$L+0.125, mesh.ls$U-0.125, length.out=mesh.ls$n_mesh_p),
+                            colMeans(posterior_linpred(out.r_z, re.form=NA, newdata=tibble(x=1))), 
+                            colMeans(as.matrix(out.r_z, variable="sigma"))
+            ) * N.init_rcr
+            
             ipm.OA <- build_IPM(c(ipmPar.ls, mgmt="OA"), mesh.ls)
             ipm.TURF <- build_IPM(c(ipmPar.ls, mgmt="TURF"), mesh.ls)
             N.OA <- N.init
@@ -110,12 +119,14 @@ for(s in 1:length(s_DD.seq)) {
             lam.df %>%
               pivot_longer(2:3, names_to="Management", values_to="lambda") %>%
               mutate(sim=i,
-                     s_DD=dd.i$s_DD) %>%
+                     s_DD=dd.i$s_DD, 
+                     s_DD_pow=dd.i$s_DD_pow) %>%
               saveRDS(glue("{out.dir}/lambda_{i}.rds"))
             pop.ls %>% 
               do.call('rbind', .) %>%
               mutate(sim=i,
-                     s_DD=dd.i$s_DD,
+                     s_DD=dd.i$s_DD, 
+                     s_DD_pow=dd.i$s_DD_pow,
                      size=exp(size_ln),
                      stage=if_else(size>10, "Adult", "Juvenile"),
                      sizeClass=case_when(size < 10 ~ "0-10",
@@ -136,98 +147,4 @@ for(s in 1:length(s_DD.seq)) {
 
 
 
-# visualise ---------------------------------------------------------------
-
-# obs.df <- read_csv(glue("{data.dir}Kelp_transect.csv")) %>%
-#   mutate(source="NERC_bl",
-#          Density_m2=Density) %>%
-#   select(source, Management, Zone, Date, MAE, Site, Transect, Station, Depth, Stage, Density_m2) %>%
-#   filter(!is.na(Density_m2)) %>%
-#   rename(stage=Stage)
-# obs.sum <- obs.df %>% 
-#   group_by(Management, stage) %>%
-#   summarise(N_md=median(Density_m2),
-#             N_mn=mean(Density_m2),
-#             N_lo1=quantile(Density_m2, 0.25),
-#             N_hi1=quantile(Density_m2, 0.75),
-#             N_lo2=quantile(Density_m2, 0.05),
-#             N_hi2=quantile(Density_m2, 0.95),) %>%
-#   ungroup 
-# 
-# lam.df <- map_dfr(dir(tune.dir, "lambda", recursive=T, full.names=T), readRDS)
-# pop.df <- map_dfr(dir(tune.dir, "pop", recursive=T, full.names=T), readRDS)
-# 
-# 
-# ggplot(lam.df, aes(year, lambda, colour=Management, group=paste(Management, sim))) + 
-#   geom_line() + 
-#   facet_wrap(~s_DD)
-# lam.df %>% group_by(year, Management, s_DD) %>%
-#   summarise(lambda_mn=exp(mean(log(lambda))),
-#             lambda_q10=quantile(lambda, 0.05),
-#             lambda_q90=quantile(lambda, 0.95)) %>%
-#   ggplot(aes(year, lambda_mn, ymin=lambda_q10, ymax=lambda_q90, colour=Management, fill=Management)) + 
-#   geom_ribbon(alpha=0.5, colour=NA) + 
-#   geom_line() + 
-#   facet_wrap(~s_DD)
-# 
-# pop.df %>%
-#   filter(year > 30) %>%
-#   group_by(year, Management, s_DD, stage, sim) %>%
-#   summarise(N=sum(N)) %>%
-#   group_by(year, Management, s_DD, stage) %>%
-#   summarise(N_mn=median(N),
-#             N_lo1=quantile(N, 0.25),
-#             N_hi1=quantile(N, 0.75),
-#             N_lo2=quantile(N, 0.05),
-#             N_hi2=quantile(N, 0.95)) %>%
-#   ggplot(aes(year, N_mn, colour=stage, fill=stage)) + 
-#   geom_ribbon(aes(ymin=N_lo1, ymax=N_hi1), alpha=0.25, colour=NA) +
-#   geom_ribbon(aes(ymin=N_lo2, ymax=N_hi2), alpha=0.25, colour=NA) +
-#   geom_line() + 
-#   geom_point(data=obs.sum %>% mutate(year=45)) +
-#   geom_linerange(data=obs.sum %>% mutate(year=45), aes(ymin=N_lo1, ymax=N_hi1), size=1.25) +
-#   geom_errorbar(data=obs.sum %>% mutate(year=45), aes(ymin=N_lo2, ymax=N_hi2), width=2) +
-#   facet_grid(Management~s_DD)
-# 
-# validation.sum <- pop.df %>% filter(year > 30) %>%
-#   mutate(simTransect=(sim-1) %/% 20) %>%
-#   group_by(year, Management, s_DD, stage, simTransect) %>%
-#   summarise(N=sum(N)/20) %>%
-#   group_by(Management, s_DD, stage) %>%
-#   summarise(N_md=median(N),
-#             N_mn=mean(N),
-#             N_lo1=quantile(N, 0.25),
-#             N_hi1=quantile(N, 0.75),
-#             N_lo2=quantile(N, 0.05),
-#             N_hi2=quantile(N, 0.95)) %>%
-#   ungroup %>%
-#   full_join(obs.sum, suffix=c(".sim", ".obs"), by=c("Management", "stage"))
-# validation.sum %>%
-#   ggplot() + 
-#   geom_ribbon(aes(x=s_DD, ymin=N_lo1.obs, ymax=N_hi1.obs), colour=NA, fill="grey", alpha=0.5) +
-#   geom_ribbon(aes(x=s_DD, ymin=N_lo2.obs, ymax=N_hi2.obs), colour=NA, fill="grey", alpha=0.5) +
-#   geom_hline(aes(yintercept=N_md.obs)) +
-#   geom_hline(aes(yintercept=N_mn.obs), linetype=2) +
-#   geom_point(aes(s_DD, N_md.sim)) + 
-#   geom_point(aes(s_DD, N_mn.sim), shape=1) + 
-#   geom_linerange(aes(x=s_DD, ymin=N_lo1.sim, ymax=N_hi1.sim), size=1) +
-#   geom_linerange(aes(x=s_DD, ymin=N_lo2.sim, ymax=N_hi2.sim)) +
-#   facet_grid(Management~stage) +
-#   # scale_y_continuous(trans="log1p") +
-#   labs(title="Avg of yr 30-40 (harvest yr 10), simulated 20m2",
-#        x="Survival density dependence parameter", y="Density (N/m2)")
-# ggsave("figs/tuning_sDD_simVsObs.png", width=6, height=6, units="in", dpi=300)
-# 
-# validation.yr <- pop.df %>% filter(year > 30) %>%
-#   group_by(year, Management, s_DD, stage, sim) %>%
-#   summarise(N=sum(N)) %>%
-#   group_by(year, Management, s_DD, stage) %>%
-#   summarise(N_md=median(N),
-#             N_mn=mean(N),
-#             N_lo1=quantile(N, 0.25),
-#             N_hi1=quantile(N, 0.75),
-#             N_lo2=quantile(N, 0.05),
-#             N_hi2=quantile(N, 0.95)) %>%
-#   ungroup %>%
-#   full_join(obs.sum, suffix=c(".sim", ".obs"), by=c("Management", "stage"))
 
