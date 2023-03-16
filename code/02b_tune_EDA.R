@@ -6,8 +6,10 @@ library(tidyverse); library(glue)
 theme_set(theme_bw())
 
 data.dir <- "data/chile/"
-tune.dir <- "out/dd_tune_noSqrt/"
+s_DD_pow <- 1
 
+lam.df <- readRDS(glue("out/tune_processed/lambda_pow_{s_DD_pow}.rds"))
+pop.df <- readRDS(glue("out/tune_processed/pop_pow_{s_DD_pow}.rds"))
 
 obs.df <- read_csv(glue("{data.dir}Kelp_transect.csv")) %>%
   mutate(source="NERC_bl",
@@ -27,8 +29,7 @@ obs.sum <- obs.df %>%
             N_hi3=max(Density_m2)) %>%
   ungroup 
 
-lam.df <- map_dfr(dir(tune.dir, "lambda", recursive=T, full.names=T), readRDS)
-pop.df <- map_dfr(dir(tune.dir, "pop", recursive=T, full.names=T), readRDS)
+
 
 
 

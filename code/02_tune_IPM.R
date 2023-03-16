@@ -146,5 +146,14 @@ for(s in 1:length(s_DD.seq)) {
 
 
 
+# summarise ---------------------------------------------------------------
+
+mkdir("out/tune_processed")
+dir(tune.dir, "lambda", recursive=T, full.names=T) %>% 
+  map_dfr(readRDS) %>%
+  saveRDS(glue("out/tune_processed/lambda_pow_{s_DD_pow}.rds"))
+dir(tune.dir, "pop", recursive=T, full.names=T) %>% 
+  map_dfr(readRDS) %>%
+  saveRDS(glue("out/tune_processed/pop_pow_{s_DD_pow}.rds"))
 
 
