@@ -96,7 +96,6 @@ run_ipmr_regMan <- function(param.ls, mesh.ls, N.init) {
       s=plogis(coef.s[1] + coef.s[2]*z_1 + 
                  coef.s[3]*(mgmt=="TURF") + coef.s[4]*z_1*(mgmt=="TURF") +
                  s_dd),
-      # s_dd=s_DD * (sum(n_z_t) - cumsum(n_z_t)),
       s_dd=s_DD * sqrt((sum(n_z_t * pi * (exp(z_1)/2)^2) - cumsum(n_z_t * pi * (exp(z_1)/2)^2))),
       coef.s=colMeans(fixef(surv_mod, summary=F)[sample.int(4000, ndraws),]),
       coef.g=colMeans(fixef(grow_mod, summary=F)[sample.int(4000, ndraws),]),
@@ -147,7 +146,10 @@ build_IPM <- function(par.ls, mesh.ls) {
       sd_g=c(as.matrix(out_g, variable="sigma", draw=draw)),
       s=plogis(b.s[1] + b.s[2]*z_1 + b.s[3]*(mgmt=="TURF") + b.s[4]*z_1*(mgmt=="TURF") + s_dd),
       b.s=fixef(out_s, summary=F)[draw,],
-      s_dd=s_DD * sqrt((sum(n_z_t * pi * (exp(z_1)/2)^2) - cumsum(n_z_t * pi * (exp(z_1)/2)^2))),
+      # Asymmetric competition
+      # s_DD * (Area[z > z_i])^pow
+      # Allows for tuning the shape of the impact by size
+      s_dd=s_DD * (sum(n_z_t * pi * (exp(z_1)/2)^2) - cumsum(n_z_t * pi * (exp(z_1)/2)^2))^s_DD_pow,
       data_list=par.ls,
       states=list(c('z')),
       evict_cor=TRUE,
@@ -157,11 +159,11 @@ build_IPM <- function(par.ls, mesh.ls) {
       name="F",
       formula=r_s*r_d,
       family="CC",
-      r_s=posterior_epred(out_r, re.form=NA, ndraws=1,
-                          newdata=tibble(Adult=sum(n_z_t*(z_1>log(adultThresh))), Management=mgmt)),
+      r_s=c(posterior_predict(out_r, re.form=NA, draw_ids=draw,
+                              newdata=tibble(Adult=sum(n_z_t*(z_1>log(adultThresh))), 
+                                             Management=mgmt))),
       r_d=dnorm(z_2, mu_rcr, sd_rcr),
-      mu_rcr=c(posterior_epred(out_r_z, re.form=NA, ndraws=1,
-                               newdata=tibble(Management=mgmt))),
+      mu_rcr=c(posterior_linpred(out_r_z, re.form=NA, draw_ids=draw, newdata=tibble(Management=mgmt))),
       sd_rcr=c(as.matrix(out_r_z, variable="sigma", draw=draw)),
       
       data_list=par.ls,

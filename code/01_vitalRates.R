@@ -9,6 +9,9 @@
 
 library(tidyverse); library(brms); library(glue); library(lubridate); library(loo)
 
+cores <- 10
+options(mc.cores=cores)
+# setwd("C:/Users/sa04ts/OneDrive - SAMS/Projects/KELPER/kelper2/Ltrabeculata_model")
 data.dir <- "data/chile/"
 
 
@@ -104,31 +107,37 @@ out.s <- map(form.s,
                                 group="Site:Patch"),
                           prior(normal(0, 0.25), nlpar="pSurvYr", class="sd", lb=0,
                                 group="Site:Patch:Plant"))))
-out.s <- map(out.s, ~add_criterion(.x, "loo", moment_match=T))
-loo.s <- map(out.s, ~loo(.x, cores=4)) %>% loo_compare()
+out.s <- map(out.s, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
+loo.s <- map(out.s, ~loo(.x, cores=cores)) %>% loo_compare()
+saveRDS(loo.s, "out/regr/loo_s.rds")
 
 opt.s <- loo.s %>% as_tibble(rownames="model") %>% 
   filter(elpd_diff > -4) %>%
   arrange(model)
+opt2.s <- loo.s %>% as_tibble(rownames="model") %>% 
+  arrange(desc(as.numeric(elpd_diff)))
 
 saveRDS(out.s[[opt.s$model[1]]], "out/regr/opt_s.rds")
+saveRDS(out.s[[opt2.s$model[1]]], "out/regr/opt2_s.rds")
+saveRDS(out.s, "out/regr/all_s.rds")
+saveRDS(out.s$m6, "out/regr/full_s.rds")
 
 
 
-out.s <- brm(bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
-                pSurvYr ~ logHoldfast*Management + 
-                  (1+logHoldfast*Management|Site/Patch/Plant),
-                nl=T),
-             data=surv.df, init=0, family="bernoulli", chains=4, cores=4,
-             prior=c(prior(normal(0, 0.5), nlpar="pSurvYr"),
-                     prior(normal(-1, 1), nlpar="pSurvYr", coef="Intercept"),
-                     prior(normal(0, 0.5), nlpar="pSurvYr", class="sd", lb=0, 
-                           group="Site"),
-                     prior(normal(0, 0.1), nlpar="pSurvYr", class="sd", lb=0,
-                           group="Site:Patch"),
-                     prior(normal(0, 0.25), nlpar="pSurvYr", class="sd", lb=0,
-                           group="Site:Patch:Plant")), 
-             file="out/regr/survival.rds")
+# out.s <- brm(bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
+#                 pSurvYr ~ logHoldfast*Management + 
+#                   (1+logHoldfast*Management|Site/Patch/Plant),
+#                 nl=T),
+#              data=surv.df, init=0, family="bernoulli", chains=4, cores=4,
+#              prior=c(prior(normal(0, 0.5), nlpar="pSurvYr"),
+#                      prior(normal(-1, 1), nlpar="pSurvYr", coef="Intercept"),
+#                      prior(normal(0, 0.5), nlpar="pSurvYr", class="sd", lb=0, 
+#                            group="Site"),
+#                      prior(normal(0, 0.1), nlpar="pSurvYr", class="sd", lb=0,
+#                            group="Site:Patch"),
+#                      prior(normal(0, 0.25), nlpar="pSurvYr", class="sd", lb=0,
+#                            group="Site:Patch:Plant")), 
+#              file="out/regr/survival.rds")
 
 
 
@@ -160,14 +169,20 @@ out.g <- map(form.g,
                               prior(normal(0, 0.1), class="sd", lb=0, group="Site:Patch:Plant"),
                               prior(normal(0, 1), class="b"),
                               prior(normal(2, 1), class="Intercept"))))
-out.g <- map(out.g, ~add_criterion(.x, "loo", moment_match=T))
-loo.g <- map(out.g, ~loo(.x, cores=4)) %>% loo_compare()
+out.g <- map(out.g, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
+loo.g <- map(out.g, ~loo(.x, cores=cores)) %>% loo_compare()
+saveRDS(loo.g, "out/regr/loo_g.rds")
 
 opt.g <- loo.g %>% as_tibble(rownames="model") %>% 
   filter(elpd_diff > -4) %>%
   arrange(model)
+opt2.g <- loo.g %>% as_tibble(rownames="model") %>% 
+  arrange(desc(as.numeric(elpd_diff)))
 
 saveRDS(out.g[[opt.g$model[1]]], "out/regr/opt_g.rds")
+saveRDS(out.g[[opt2.g$model[1]]], "out/regr/opt2_g.rds")
+saveRDS(out.g, "out/regr/all_g.rds")
+saveRDS(out.g$m6, "out/regr/full_g.rds")
 
 
 
@@ -194,47 +209,108 @@ rcrDens.df <- read_csv(glue("{data.dir}Patches_quad.csv")) %>%
 
 # Problem: This uses Adult[t] to predict Juvenile[t]
 # But I want 1) new recruits, and 2) Adult[t-1] to predict [t]
+# form.r <- list(
+#   # m0=bf(Juvenile ~ 0 + Int + (1|Site),
+#   #       zi ~ 0 + Int + (1|Site)),
+#   m1=bf(Juvenile ~ 0 + Int + Adult + (1|Site),
+#         zi ~ 0 + Int + (1|Site)),
+#   m2=bf(Juvenile ~ 0 + Int + Adult + (1|Site),
+#         zi ~ 0 + Int + Adult + (1|Site)),
+#   m3=bf(Juvenile ~ 0 + Int + Adult + Management + (1|Site),
+#         zi ~ 0 + Int + Adult + (1|Site)),
+#   m4=bf(Juvenile ~ 0 + Int + Adult + Management + (1|Site),
+#         zi ~ 0 + Int + Adult + Management + (1|Site))
+# )
+# out.r <- map(form.r, 
+#                ~brm(.x, data=rcrDens.df, cores=4, save_pars=save_pars(all=T), 
+#                     family=zero_inflated_poisson(), control=list(adapt_delta=0.9),
+#                     prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
+#                             prior(normal(-1, 1), class="b"),
+#                             prior(normal(0.5, 1), class="b", coef="Int"),
+#                             prior(normal(0, 0.1), class="sd", lb=0, group="Site", dpar="zi"),
+#                             prior(normal(0.5, 0.5), class="b", dpar="zi"),
+#                             prior(normal(0, 1), class="b", coef="Int", dpar="zi"))))
 form.r <- list(
-  m0=bf(Juvenile ~ 0 + Int + (1|Site),
-        zi ~ 0 + Int + (1|Site)),
-  m1=bf(Juvenile ~ 0 + Int + Adult + (1|Site),
-        zi ~ 0 + Int + (1|Site)),
-  m2=bf(Juvenile ~ 0 + Int + Adult + (1|Site),
-        zi ~ 0 + Int + Adult + (1|Site)),
-  m3=bf(Juvenile ~ 0 + Int + Adult + Management + (1|Site),
-        zi ~ 0 + Int + Adult + (1|Site)),
-  m4=bf(Juvenile ~ 0 + Int + Adult + Management + (1|Site),
-        zi ~ 0 + Int + Adult + Management + (1|Site))
+  m1=bf(Juvenile ~ IntP + AdultP,
+        IntP ~ 1 + (1|Site),
+        lf(AdultP ~ 0 + Adult, cmc=F),
+        nlf(zi ~ IntZi),
+        IntZi ~ 1 + (1|Site),
+        nl=T),
+  m2=bf(Juvenile ~ IntP + AdultP,
+        IntP ~ 1 + (1|Site),
+        lf(AdultP ~ 0 + Adult, cmc=F),
+        nlf(zi ~ IntZi + AdultZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        nl=T),
+  m3=bf(Juvenile ~ IntP + AdultP + MgmtP,
+        IntP ~ 1 + (1|Site),
+        lf(AdultP ~ 0 + Adult, cmc=F),
+        lf(MgmtP ~ 0 + Management, cmc=F),
+        nlf(zi ~ IntZi + AdultZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        nl=T),
+  m4=bf(Juvenile ~ IntP + AdultP + MgmtP,
+        IntP ~ 1 + (1|Site),
+        lf(AdultP ~ 0 + Adult, cmc=F),
+        lf(MgmtP ~ 0 + Management, cmc=F),
+        nlf(zi ~ IntZi + AdultZi + MgmtZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        lf(MgmtZi ~ 0 + Management, cmc=F),
+        nl=T)
 )
-out.r <- map(form.r, 
-               ~brm(.x, data=rcrDens.df, cores=4, save_pars=save_pars(all=T), 
-                    family=zero_inflated_poisson(), control=list(adapt_delta=0.9),
-                    prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
-                            prior(normal(-1, 1), class="b"),
-                            prior(normal(0.5, 1), class="b", coef="Int"),
-                            prior(normal(0, 0.1), class="sd", lb=0, group="Site", dpar="zi"),
-                            prior(normal(0.5, 0.5), class="b", dpar="zi"),
-                            prior(normal(0, 1), class="b", coef="Int", dpar="zi"))))
-out.r <- map(out.r, ~add_criterion(.x, "loo", moment_match=T))
-loo.r <- map(out.r, ~loo(.x, cores=4)) %>% loo_compare()
+priors.r <- vector("list", length(form.r))
+for(i in seq_along(priors.r)) {
+  priors.r[[i]] <- c(prior(normal(0, 0.1), class="sd", lb=0, nlpar="IntP"),
+                   prior(normal(0.5, 1), class="b", nlpar="IntP"),
+                   prior(normal(0, 0.1), class="sd", lb=0, nlpar="IntZi"),
+                   prior(normal(0, 1), class="b", nlpar="IntZi"))
+  if(grepl("AdultP", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="AdultP", ub=0))
+  }
+  if(grepl("AdultZi", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="AdultZi", ub=0))
+  }
+  if(grepl("MgmtP", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="MgmtP"))
+  }
+  if(grepl("MgmtZi", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="MgmtZi"))
+  }
+}
+out.r <- map2(form.r, priors.r,
+                 ~brm(.x, data=rcrDens.df, cores=4, save_pars=save_pars(all=T), 
+                      family=zero_inflated_negbinomial(), control=list(adapt_delta=0.9),
+                      prior=.y))
+out.r <- map(out.r, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
+loo.r <- map(out.r, ~loo(.x, cores=cores)) %>% loo_compare()
+saveRDS(loo.r, "out/regr/loo_r.rds")
 
 opt.r <- loo.r %>% as_tibble(rownames="model") %>% 
   filter(elpd_diff > -4) %>%
   arrange(model)
+opt2.r <- loo.r %>% as_tibble(rownames="model") %>% 
+  arrange(desc(as.numeric(elpd_diff)))
 
 saveRDS(out.r[[opt.r$model[1]]], "out/regr/opt_r.rds")
+saveRDS(out.r[[opt2.r$model[1]]], "out/regr/opt2_r.rds")
+saveRDS(out.r, "out/regr/all_r.rds")
+saveRDS(out.r$m4, "out/regr/full_r.rds")
 
-out.r <- brm(bf(Juvenile ~ Adult + (1|Site),
-                zi ~ Adult + (1|Site)), 
-             family=zero_inflated_poisson(), data=rcrDens.df, cores=4,
-             prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
-                     prior(normal(0.5, 1), class="Intercept"),
-                     prior(normal(-1, 1), class="b", ub=0),
-                     prior(normal(0, 0.1), class="sd", lb=0, group="Site", dpar="zi"),
-                     prior(normal(0, 1), class="Intercept", dpar="zi"),
-                     prior(normal(0.5, 0.5), class="b", dpar="zi")), 
-             file="temp/out_r_ZIP.rds")
-pp_check(out.r, ndraws=100) + scale_x_continuous(trans="log1p")
+# out.r <- brm(bf(Juvenile ~ Adult + (1|Site),
+#                 zi ~ Adult + (1|Site)), 
+#              family=zero_inflated_poisson(), data=rcrDens.df, cores=4,
+#              prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
+#                      prior(normal(0.5, 1), class="Intercept"),
+#                      prior(normal(-1, 1), class="b", ub=0),
+#                      prior(normal(0, 0.1), class="sd", lb=0, group="Site", dpar="zi"),
+#                      prior(normal(0, 1), class="Intercept", dpar="zi"),
+#                      prior(normal(0.5, 0.5), class="b", dpar="zi")), 
+#              file="temp/out_r_ZIP.rds")
+# pp_check(out.r, ndraws=100) + scale_x_continuous(trans="log1p")
 
 
 rcrSize.df <- Growth_Surv %>% 
@@ -259,20 +335,26 @@ form.r_z <- list(
 out.r_z <- map(form.r_z, 
              ~brm(.x, data=rcrSize.df, cores=4, save_pars=save_pars(all=T), 
                   control=list(adapt_delta=0.9)))
-out.r_z <- map(out.r_z, ~add_criterion(.x, "loo", moment_match=T))
-loo.r_z <- map(out.r_z, ~loo(.x, cores=4)) %>% loo_compare()
+out.r_z <- map(out.r_z, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
+loo.r_z <- map(out.r_z, ~loo(.x, cores=cores)) %>% loo_compare()
+saveRDS(loo.r_z, "out/regr/loo_r_z.rds")
 
 opt.r_z <- loo.r_z %>% as_tibble(rownames="model") %>% 
   filter(elpd_diff > -4) %>%
   arrange(model)
+opt2.r_z <- loo.r_z %>% as_tibble(rownames="model") %>% 
+  arrange(desc(as.numeric(elpd_diff)))
 
 saveRDS(out.r_z[[opt.r_z$model[1]]], "out/regr/opt_r_z.rds")
+saveRDS(out.r_z[[opt2.r_z$model[1]]], "out/regr/opt2_r_z.rds")
+saveRDS(out.r_z, "out/regr/all_r_z.rds")
+saveRDS(out.r_z$m4, "out/regr/full_r_z.rds")
 
-out.r_z <- brm(logHoldfast ~ Management + (1|Site), 
-               data=rcrSize.df, cores=4,
-               prior=c(prior(normal(0, 0.5), class="sd", lb=0),
-                       prior(normal(0, 1), class="b")),
-               file="temp/out_r_z.rds")
+# out.r_z <- brm(logHoldfast ~ Management + (1|Site), 
+#                data=rcrSize.df, cores=4,
+#                prior=c(prior(normal(0, 0.5), class="sd", lb=0),
+#                        prior(normal(0, 1), class="b")),
+#                file="temp/out_r_z.rds")
 
 
 
@@ -335,36 +417,61 @@ form.hf_wt <- list(
 out.hf_wt <- map(form.hf_wt, 
                   ~brm(.x, data=allom.df, cores=4, save_pars=save_pars(all=T), 
                        control=list(adapt_delta=0.9)))
-out.hf_wt <- map(out.hf_wt, ~add_criterion(.x, "loo", moment_match=T))
-loo.hf_wt <- map(out.hf_wt, ~loo(.x, cores=4)) %>% loo_compare()
+out.hf_wt <- map(out.hf_wt, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
+loo.hf_wt <- map(out.hf_wt, ~loo(.x, cores=cores)) %>% loo_compare()
+saveRDS(loo.hf_wt, "out/regr/loo_allom_hw.rds")
 
 opt.hf_wt <- loo.hf_wt %>% as_tibble(rownames="model") %>% 
   filter(elpd_diff > -4) %>%
   arrange(model)
+opt2.hf_wt <- loo.hf_wt %>% as_tibble(rownames="model") %>% 
+  arrange(desc(as.numeric(elpd_diff)))
 
 saveRDS(out.hf_wt[[opt.hf_wt$model[1]]], "out/regr/opt_allom_hw.rds")
+saveRDS(out.hf_wt[[opt2.hf_wt$model[1]]], "out/regr/opt2_allom_hw.rds")
+saveRDS(out.hf_wt, "out/regr/all_allom_hw.rds")
+saveRDS(out.hf_wt$m6, "out/regr/full_allom_hw.rds")
+
+
+
+# # From holdfast diameter to total length
+# 
+# form.hf_len <- list(
+#   m0=bf(logLength ~ logHoldfast),
+#   m1=bf(logLength ~ logHoldfast + (1|Site2)),
+#   m2=bf(logLength ~ logHoldfast + I(logHoldfast^2) + (1|Site2)),
+#   m3=bf(logLength ~ logHoldfast + I(logHoldfast^2) + Management + (1|Site2)),
+#   m4=bf(logLength ~ logHoldfast * Management + I(logHoldfast^2) * Management + (1|Site2)),
+#   m4=bf(logLength ~ logHoldfast * Management + I(logHoldfast^2) * Management + ( 1+ logHoldfast * Management + I(logHoldfast^2) * Management|Site2)),
+# )
+# 
+# out.hf_len <- map(form.hf_len, 
+#                   ~brm(.x, data=allom.df, cores=4, save_pars=save_pars(all=T), 
+#                        control=list(adapt_delta=0.9)))
+# out.hf_len <- map(out.hf_len, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
+# loo.hf_len <- map(out.hf_len, ~loo(.x, cores=cores)) %>% loo_compare()
+# saveRDS(loo.hf_len, "out/regr/loo_allom_hl.rds")
+# 
+# opt.hf_len <- loo.hf_len %>% as_tibble(rownames="model") %>% 
+#   filter(elpd_diff > -4) %>%
+#   arrange(model)
+# 
+# saveRDS(out.hf_len[[opt.hf_len$model[1]]], "out/regr/opt_allom_hl.rds")
+# saveRDS(out.hf_len, "out/regr/all_allom_hl.rds")
 
 
 
 
-# From holdfast diameter to total length
 
-form.hf_len <- list(
-  m0=bf(logLength ~ logHoldfast),
-  m1=bf(logLength ~ logHoldfast + (1|Site2)),
-  m2=bf(logLength ~ logHoldfast + I(logHoldfast^2) + (1|Site2)),
-  m3=bf(logLength ~ logHoldfast + I(logHoldfast^2) + Management + (1|Site2)),
-  m4=bf(logLength ~ logHoldfast + (1+logHoldfast|Site2)),
-)
 
-out.hf_len <- map(form.hf_len, 
-                  ~brm(.x, data=allom.df, cores=4, save_pars=save_pars(all=T), 
-                       control=list(adapt_delta=0.9)))
-out.hf_len <- map(out.hf_len, ~add_criterion(.x, "loo", moment_match=T))
-loo.hf_len <- map(out.hf_len, loo) %>% loo_compare()
+# summaries ---------------------------------------------------------------
 
-opt.hf_len <- loo.hf_len %>% as_tibble(rownames="model") %>% 
-  filter(elpd_diff > -4) %>%
-  arrange(model)
+opt.f <- dir("out/regr", "opt_")
+opt.mods <- map(opt.f, ~readRDS(glue("out/regr/{.x}"))) %>%
+  setNames(str_sub(opt.f, 5, -5))
+map(opt.mods, ~.x$formula)
 
-saveRDS(out.hf_wt[[opt.hf_wt$model[1]]], "out/regr/opt_alom_hw.rds")
+opt2.f <- dir("out/regr", "opt2_")
+opt2.mods <- map(opt2.f, ~readRDS(glue("out/regr/{.x}"))) %>%
+  setNames(str_sub(opt2.f, 6, -5))
+map(opt2.mods, ~.x$formula)
