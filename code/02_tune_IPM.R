@@ -27,7 +27,7 @@ tune.dir <- glue("out/dd_tune_pow_{s_DD_pow}/")
 for(p in 1:length(s_DD_pow)) {
   for(s in 1:length(s_DD.seq[[p]])) {
     
-    out.dir <- glue("{tune.dir}/sdd-{str_pad(s, 2, 'left', '0')}/")
+    out.dir <- glue("{tune.dir[p]}/sdd-{str_pad(s, 2, 'left', '0')}/")
     dir.create(out.dir, recursive=T)
     
     dd.i <- list(
