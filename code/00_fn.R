@@ -159,13 +159,14 @@ build_IPM <- function(par.ls, mesh.ls) {
       name="F",
       formula=r_s*r_d,
       family="CC",
-      r_s=c(posterior_predict(out_r, re.form=NA, draw_ids=draw,
-                              newdata=tibble(Adult=sum(n_z_t*(z_1>log(adultThresh))), 
-                                             Management=mgmt))),
+      r_s_nRcrPred=c(posterior_predict(out_r, re.form=NA, draw_ids=draw,
+                                       newdata=tibble(Adult=sum(n_z_t*(z_1>log(adultThresh))), 
+                                                      Management=mgmt,
+                                                      Upwelling=upwell))),
+      r_s=min(rcr_max, r_s_nRcrPred),
       r_d=dnorm(z_2, mu_rcr, sd_rcr),
       mu_rcr=c(posterior_linpred(out_r_z, re.form=NA, draw_ids=draw, newdata=tibble(Management=mgmt))),
       sd_rcr=c(as.matrix(out_r_z, variable="sigma", draw=draw)),
-      
       data_list=par.ls,
       states=list(c("z")),
       evict_cor=TRUE,
@@ -182,6 +183,76 @@ build_IPM <- function(par.ls, mesh.ls) {
     define_domains(z=c(mesh.ls$L, mesh.ls$U, mesh.ls$n_mesh_p))
 }
 
+
+
+
+
+build_IPM2 <- function(par.ls, mesh.ls) {
+  
+  init_ipm(sim_gen="simple",
+           di_dd="dd",
+           det_stoch="det") %>%
+    define_kernel(
+      name="P",
+      formula=s*G,
+      family="CC",
+      G=dnorm(z_2, mu_g, sd_g),
+      mu_g=b.g[1] + b.g[2]*z_1 + b.g[3]*(mgmt=="TURF") + b.g[4]*(upwell=="Y"),
+      b.g=fixef(out_g, summary=F)[draw,],
+      sd_g=c(as.matrix(out_g, variable="sigma", draw=draw)),
+      s=plogis(b.s[1] + b.s[2]*z_1 + b.s[3]*(mgmt=="TURF") + b.s[4]*(upwell=="Y") + 
+                 b.s[5]*z_1*(mgmt=="TURF") + b.s[6]*z_1*(upwell=="Y") +
+                 b.s[7]*(mgmt=="TURF")*(upwell=="Y") + 
+                 b.s[8]*z_1*(mgmt=="TURF")*(upwell=="Y") +
+                 s_dd),
+      b.s=fixef(out_s, summary=F)[draw,],
+      # Asymmetric competition
+      # s_DD * (Area[z > z_i])^pow
+      # Allows for tuning the shape of the impact by size
+      s_dd=s_DD * (sum(n_z_t * pi * (exp(z_1)/2)^2) - cumsum(n_z_t * pi * (exp(z_1)/2)^2))^s_DD_pow,
+      data_list=par.ls,
+      states=list(c('z')),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "G")
+    ) %>% 
+    define_kernel(
+      name="F",
+      formula=r_s*r_d,
+      family="CC",
+      r_s=0,
+      r_d=dnorm(z_2, 0, 0.1),
+      data_list=par.ls,
+      states=list(c("z")),
+      evict_cor=TRUE,
+      evict_fun=truncated_distributions("norm", "r_d")
+    ) %>% 
+    define_impl(
+      make_impl_args_list(
+        kernel_names=c("P", "F"),
+        int_rule=rep('midpoint', 2),
+        state_start=rep('z', 2),
+        state_end=rep('z', 2)
+      )
+    ) %>% 
+    define_domains(z=c(mesh.ls$L, mesh.ls$U, mesh.ls$n_mesh_p))
+}
+
+
+
+
+calc_new_recruits <- function(ipm, pars, z_2) {
+  nRcr_k <- min(pars$rcr_max, 
+                posterior_predict(
+                  pars$out_r, re.form=NA, draw_ids=pars$draw,
+                  newdata=tibble(Adult=sum(ipm$pop_state$n_z[adult_i,1]), 
+                                 Management=pars$mgmt,
+                                 Upwelling=pars$upwell)))
+  mu_rcr <- c(posterior_linpred(pars$out_r_z, re.form=NA, draw_ids=pars$draw, 
+                                newdata=tibble(Management=pars$mgmt)))
+  sd_rcr <- c(as.matrix(pars$out_r_z, variable="sigma", draw=pars$draw))
+  r_d <- dnorm(z_2, mu_rcr, sd_rcr)
+  return(ipm$pop_state$n_z[,2] + nRcr_k*r_d/sum(r_d))
+}
 
 
 
