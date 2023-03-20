@@ -12,14 +12,14 @@ library(doParallel); library(foreach)
 source("code/00_fn.R")
 
 reg.dir <- "out/regr/"
-nSim <- 10
-cores <- 10
+nSim <- 200
+cores <- 70
 N.init_rcr <- 5
 rcr_max <- 100
 # s_DD * Area^s_DD_pow
-s_DD.df <- map_dfr(seq(0.5, 1, length.out=2), 
+s_DD.df <- map_dfr(seq(0.5, 1, length.out=4), 
                    ~tibble(s_DD=seq(-exp(seq(log(0.01), log(0.00025), length.out=length(.x))), 
-                                    0, length.out=5),
+                                    0, length.out=10),
                            s_DD_pow=.x) %>%
                      mutate(s_DD_i=row_number())) %>%
   mutate(pow.dir=glue("out/dd_tune_pow_{s_DD_pow}/"),
@@ -138,6 +138,7 @@ for(s in 1:nrow(s_DD.df)) {
               saveRDS(glue("{s_DD.df$out.dir[s]}/pop_{i}.rds"))
             
           }
+  stopCluster(cl)
 }
 
 
@@ -148,13 +149,11 @@ for(s in 1:nrow(s_DD.df)) {
 # summarise ---------------------------------------------------------------
 
 dir.create("out/tune_processed")
-map(1:length(s_DD_pow), 
-    ~dir(tune.dir[.x], "lambda", recursive=T, full.names=T) %>%
+s_DD.pows <- s_DD.df %>% group_by(s_DD_pow) %>% slice_head(n=1)
+walk(1:nrow(s_DD.pows), 
+    ~dir(s_DD.pows$pow.dir[.x], "pop", recursive=T, full.names=T) %>%
       map_dfr(readRDS) %>%
-      saveRDS(glue("out/tune_processed/lambda_pow_{s_DD_pow[.x]}.rds")))
-map(1:length(s_DD_pow), 
-    ~dir(tune.dir[.x], "pop", recursive=T, full.names=T) %>%
-      map_dfr(readRDS) %>%
-      saveRDS(glue("out/tune_processed/pop_pow_{s_DD_pow[.x]}.rds")))
+      saveRDS(glue("out/tune_processed/pop_pow_{s_DD.pows$s_DD_pow[.x]}.rds")))
+
 
 
