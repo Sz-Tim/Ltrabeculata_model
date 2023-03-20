@@ -11,11 +11,11 @@ library(tidyverse); library(brms); library(glue); library(lubridate); library(lo
 
 cores <- 10
 options(mc.cores=cores)
-# setwd("C:/Users/sa04ts/OneDrive - SAMS/Projects/KELPER/kelper2/Ltrabeculata_model")
 data.dir <- "data/chile/"
 
 
 Growth_Surv <- read_csv(glue("{data.dir}Growth&Survival.csv")) %>%
+  left_join(read_csv("data/Cata_site_i.csv") %>% select(-Site_og)) %>%
   mutate(Site=factor(Site),
          Management=factor(Management),
          Plant=factor(Plant),
@@ -35,7 +35,7 @@ Growth_Surv <- read_csv(glue("{data.dir}Growth&Survival.csv")) %>%
   filter(!is.na(Site))
 
 survey.i <- Growth_Surv %>%
-  group_by(Site, Management, Patch, Monitoring) %>%
+  group_by(Site, Upwelling, Management, Patch, Monitoring) %>%
   summarise(Date_Harvest=min(Date_Harvest),
             Date_Obs=min(Date_Obs)) %>%
   arrange(Management, Site, Patch, Monitoring)
@@ -50,7 +50,7 @@ survey.i <- survey.i %>%
          days_to_nextObs=as.numeric(lead(Date_Obs) - Date_Obs))
 
 Growth_Surv <- Growth_Surv %>%
-  select(Site, Management, Patch, Monitoring, 
+  select(Site, Upwelling, Management, Patch, Monitoring, 
          Plant, Holdfast, Stipes, Total_Length) %>%
   left_join(., survey.i) %>%
   arrange(Site, Patch, Plant, Monitoring) %>%
@@ -93,6 +93,18 @@ form.s <- list(
         nl=T),
   m6=bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
         pSurvYr ~ logHoldfast*Management + (1+logHoldfast*Management|Site/Patch/Plant),
+        nl=T),
+  m7=bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
+        pSurvYr ~ logHoldfast + Upwelling + (1+logHoldfast+Upwelling|Site/Patch/Plant),
+        nl=T),
+  m8=bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
+        pSurvYr ~ logHoldfast*Upwelling + (1+logHoldfast*Upwelling|Site/Patch/Plant),
+        nl=T),
+  m9=bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
+        pSurvYr ~ logHoldfast + Management + Upwelling + (1+logHoldfast+Management+Upwelling|Site/Patch/Plant),
+        nl=T),
+  m10=bf(surv_01 ~ inv_logit(pSurvYr)^maxAge_yrs,
+        pSurvYr ~ logHoldfast*Management*Upwelling + (1+logHoldfast*Management*Upwelling|Site/Patch/Plant),
         nl=T)
 )
 
@@ -107,20 +119,23 @@ out.s <- map(form.s,
                                 group="Site:Patch"),
                           prior(normal(0, 0.25), nlpar="pSurvYr", class="sd", lb=0,
                                 group="Site:Patch:Plant"))))
-out.s <- map(out.s, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
-loo.s <- map(out.s, ~loo(.x, cores=cores)) %>% loo_compare()
+out.s <- map(out.s, ~add_criterion(.x, "loo", moment_match=T, cores=cores, resp="pSurvYr"))
+loo.s <- map(out.s, ~loo(.x, cores=cores, resp="pSurvYr")) %>% loo_compare()
 saveRDS(loo.s, "out/regr/loo_s.rds")
 
 opt.s <- loo.s %>% as_tibble(rownames="model") %>% 
-  filter(elpd_diff > -4) %>%
-  arrange(model)
+  filter(elpd_diff > -2) %>%
+  mutate(model2=paste0("m", str_pad(str_sub(model, 2, -1), 2, "left", "0"))) %>%
+  arrange(model2)
 opt2.s <- loo.s %>% as_tibble(rownames="model") %>% 
   arrange(desc(as.numeric(elpd_diff)))
 
-saveRDS(out.s[[opt.s$model[1]]], "out/regr/opt_s.rds")
+# saveRDS(out.s[[opt.s$model[1]]], "out/regr/opt_s.rds")
+# saveRDS(out.s$m6, "out/regr/opt_s.rds")
+saveRDS(out.s$m10, "out/regr/opt_s.rds")
 saveRDS(out.s[[opt2.s$model[1]]], "out/regr/opt2_s.rds")
 saveRDS(out.s, "out/regr/all_s.rds")
-saveRDS(out.s$m6, "out/regr/full_s.rds")
+saveRDS(out.s$m10, "out/regr/full_s.rds")
 
 
 
@@ -158,7 +173,11 @@ form.g <- list(
   m3=bf(logNextHoldfastAnnual ~ logHoldfast * Management + (1|Site/Patch/Plant)),
   m4=bf(logNextHoldfastAnnual ~ logHoldfast + (1 + logHoldfast|Site/Patch/Plant)),
   m5=bf(logNextHoldfastAnnual ~ logHoldfast + Management + (1 + logHoldfast + Management|Site/Patch/Plant)),
-  m6=bf(logNextHoldfastAnnual ~ logHoldfast * Management + (1 + logHoldfast * Management|Site/Patch/Plant))
+  m6=bf(logNextHoldfastAnnual ~ logHoldfast * Management + (1 + logHoldfast * Management|Site/Patch/Plant)),
+  m7=bf(logNextHoldfastAnnual ~ logHoldfast + Upwelling + (1 + logHoldfast + Upwelling|Site/Patch/Plant)),
+  m8=bf(logNextHoldfastAnnual ~ logHoldfast * Upwelling + (1 + logHoldfast * Upwelling|Site/Patch/Plant)),
+  m9=bf(logNextHoldfastAnnual ~ logHoldfast + Management + Upwelling + (1 + logHoldfast + Management + Upwelling|Site/Patch/Plant)),
+  m10=bf(logNextHoldfastAnnual ~ logHoldfast * Management * Upwelling + (1 + logHoldfast * Management * Upwelling|Site/Patch/Plant))
 )
 
 out.g <- map(form.g, 
@@ -174,15 +193,16 @@ loo.g <- map(out.g, ~loo(.x, cores=cores)) %>% loo_compare()
 saveRDS(loo.g, "out/regr/loo_g.rds")
 
 opt.g <- loo.g %>% as_tibble(rownames="model") %>% 
-  filter(elpd_diff > -4) %>%
-  arrange(model)
+  filter(elpd_diff > -2) %>%
+  mutate(model2=paste0("m", str_pad(str_sub(model, 2, -1), 2, "left", "0"))) %>%
+  arrange(model2)
 opt2.g <- loo.g %>% as_tibble(rownames="model") %>% 
   arrange(desc(as.numeric(elpd_diff)))
 
 saveRDS(out.g[[opt.g$model[1]]], "out/regr/opt_g.rds")
 saveRDS(out.g[[opt2.g$model[1]]], "out/regr/opt2_g.rds")
 saveRDS(out.g, "out/regr/all_g.rds")
-saveRDS(out.g$m6, "out/regr/full_g.rds")
+saveRDS(out.g$m10, "out/regr/full_g.rds")
 
 
 
@@ -207,98 +227,169 @@ rcrDens.df <- read_csv(glue("{data.dir}Patches_quad.csv")) %>%
          Int=1)
 
 
-# Problem: This uses Adult[t] to predict Juvenile[t]
-# But I want 1) new recruits, and 2) Adult[t-1] to predict [t]
-# form.r <- list(
-#   # m0=bf(Juvenile ~ 0 + Int + (1|Site),
-#   #       zi ~ 0 + Int + (1|Site)),
-#   m1=bf(Juvenile ~ 0 + Int + Adult + (1|Site),
-#         zi ~ 0 + Int + (1|Site)),
-#   m2=bf(Juvenile ~ 0 + Int + Adult + (1|Site),
-#         zi ~ 0 + Int + Adult + (1|Site)),
-#   m3=bf(Juvenile ~ 0 + Int + Adult + Management + (1|Site),
-#         zi ~ 0 + Int + Adult + (1|Site)),
-#   m4=bf(Juvenile ~ 0 + Int + Adult + Management + (1|Site),
-#         zi ~ 0 + Int + Adult + Management + (1|Site))
-# )
-# out.r <- map(form.r, 
-#                ~brm(.x, data=rcrDens.df, cores=4, save_pars=save_pars(all=T), 
-#                     family=zero_inflated_poisson(), control=list(adapt_delta=0.9),
-#                     prior=c(prior(normal(0, 0.1), class="sd", lb=0, group="Site"),
-#                             prior(normal(-1, 1), class="b"),
-#                             prior(normal(0.5, 1), class="b", coef="Int"),
-#                             prior(normal(0, 0.1), class="sd", lb=0, group="Site", dpar="zi"),
-#                             prior(normal(0.5, 0.5), class="b", dpar="zi"),
-#                             prior(normal(0, 1), class="b", coef="Int", dpar="zi"))))
+# *Abund refers to the NegBin component and *Zi refers to the zero-inflation
 form.r <- list(
-  m1=bf(Juvenile ~ IntP + AdultP,
-        IntP ~ 1 + (1|Site),
-        lf(AdultP ~ 0 + Adult, cmc=F),
+  m1=bf(Juvenile ~ IntAbund + AdultAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
         nlf(zi ~ IntZi),
         IntZi ~ 1 + (1|Site),
         nl=T),
-  m2=bf(Juvenile ~ IntP + AdultP,
-        IntP ~ 1 + (1|Site),
-        lf(AdultP ~ 0 + Adult, cmc=F),
+  m2=bf(Juvenile ~ IntAbund + AdultAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
         nlf(zi ~ IntZi + AdultZi),
         IntZi ~ 1 + (1|Site),
         lf(AdultZi ~ 0 + Adult, cmc=F),
         nl=T),
-  m3=bf(Juvenile ~ IntP + AdultP + MgmtP,
-        IntP ~ 1 + (1|Site),
-        lf(AdultP ~ 0 + Adult, cmc=F),
-        lf(MgmtP ~ 0 + Management, cmc=F),
+  m3=bf(Juvenile ~ IntAbund + AdultAbund + MgmtAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(MgmtAbund ~ 0 + Management, cmc=F),
         nlf(zi ~ IntZi + AdultZi),
         IntZi ~ 1 + (1|Site),
         lf(AdultZi ~ 0 + Adult, cmc=F),
         nl=T),
-  m4=bf(Juvenile ~ IntP + AdultP + MgmtP,
-        IntP ~ 1 + (1|Site),
-        lf(AdultP ~ 0 + Adult, cmc=F),
-        lf(MgmtP ~ 0 + Management, cmc=F),
+  m4=bf(Juvenile ~ IntAbund + AdultAbund + MgmtAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(MgmtAbund ~ 0 + Management, cmc=F),
         nlf(zi ~ IntZi + AdultZi + MgmtZi),
         IntZi ~ 1 + (1|Site),
         lf(AdultZi ~ 0 + Adult, cmc=F),
         lf(MgmtZi ~ 0 + Management, cmc=F),
+        nl=T),
+  m5=bf(Juvenile ~ IntAbund + AdultAbund + UpwellAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(UpwellAbund ~ 0 + Upwelling, cmc=F),
+        nlf(zi ~ IntZi + AdultZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        nl=T),
+  m6=bf(Juvenile ~ IntAbund + AdultAbund + UpwellAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(UpwellAbund ~ 0 + Upwelling, cmc=F),
+        nlf(zi ~ IntZi + AdultZi + UpwellZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        lf(UpwellZi ~ 0 + Upwelling, cmc=F),
+        nl=T),
+  m7=bf(Juvenile ~ IntAbund + AdultAbund + UpwellAbund + MgmtAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(UpwellAbund ~ 0 + Upwelling, cmc=F),
+        lf(MgmtAbund ~ 0 + Management, cmc=F),
+        nlf(zi ~ IntZi + AdultZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        nl=T),
+  m8=bf(Juvenile ~ IntAbund + AdultAbund + UpwellAbund + MgmtAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(UpwellAbund ~ 0 + Upwelling, cmc=F),
+        lf(MgmtAbund ~ 0 + Management, cmc=F),
+        nlf(zi ~ IntZi + AdultZi + UpwellZi + MgmtZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        lf(UpwellZi ~ 0 + Upwelling, cmc=F),
+        lf(MgmtZi ~ 0 + Management, cmc=F),
+        nl=T),
+  m9=bf(Juvenile ~ IntAbund + AdultAbund + UpwellAbund + MgmtAbund + FullInteractionAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(UpwellAbund ~ 0 + Upwelling, cmc=F),
+        lf(MgmtAbund ~ 0 + Management, cmc=F),
+        lf(FullInteractionAbund ~ 0 + Upwelling:Management, cmc=F),
+        nlf(zi ~ IntZi + AdultZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        nl=T),
+  m10=bf(Juvenile ~ IntAbund + AdultAbund + UpwellAbund + MgmtAbund + FullInteractionAbund,
+        IntAbund ~ 1 + (1|Site),
+        lf(AdultAbund ~ 0 + Adult, cmc=F),
+        lf(UpwellAbund ~ 0 + Upwelling, cmc=F),
+        lf(MgmtAbund ~ 0 + Management, cmc=F),
+        lf(FullInteractionAbund ~ 0 + Upwelling:Management, cmc=F),
+        nlf(zi ~ IntZi + AdultZi + UpwellZi + MgmtZi + FullInteractionZi),
+        IntZi ~ 1 + (1|Site),
+        lf(AdultZi ~ 0 + Adult, cmc=F),
+        lf(UpwellZi ~ 0 + Upwelling, cmc=F),
+        lf(MgmtZi ~ 0 + Management, cmc=F),
+        lf(FullInteractionZi ~ 0 + Upwelling:Management, cmc=F),
         nl=T)
+  # m9=bf(Juvenile ~ IntAbund + FullAbund,
+  #       IntAbund ~ 1 + (1|Site),
+  #       lf(FullAbund ~ 0 + Adult*Upwelling*Management, cmc=F),
+  #       nlf(zi ~ IntZi + AdultZi),
+  #       IntZi ~ 1 + (1|Site),
+  #       lf(AdultZi ~ 0 + Adult, cmc=F),
+  #       nl=T),
+  # m10=bf(Juvenile ~ IntAbund + FullAbund,
+  #       IntAbund ~ 1 + (1|Site),
+  #       lf(FullAbund ~ 0 + Adult*Upwelling*Management, cmc=F),
+  #       nlf(zi ~ IntZi + FullZi),
+  #       IntZi ~ 1 + (1|Site),
+  #       lf(FullZi ~ 0 + Adult*Upwelling*Management, cmc=F),
+  #       nl=T)
 )
 priors.r <- vector("list", length(form.r))
 for(i in seq_along(priors.r)) {
-  priors.r[[i]] <- c(prior(normal(0, 0.1), class="sd", lb=0, nlpar="IntP"),
-                   prior(normal(0.5, 1), class="b", nlpar="IntP"),
+  priors.r[[i]] <- c(prior(normal(0, 0.1), class="sd", lb=0, nlpar="IntAbund"),
+                   prior(normal(0.5, 1), class="b", nlpar="IntAbund"),
                    prior(normal(0, 0.1), class="sd", lb=0, nlpar="IntZi"),
                    prior(normal(0, 1), class="b", nlpar="IntZi"))
-  if(grepl("AdultP", paste0(form.r[[i]], collapse=" "))) {
-    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="AdultP", ub=0))
+  if(grepl("AdultAbund", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="AdultAbund", ub=0))
   }
   if(grepl("AdultZi", paste0(form.r[[i]], collapse=" "))) {
-    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="AdultZi", ub=0))
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(1, 1), class="b", nlpar="AdultZi", ub=0))
   }
-  if(grepl("MgmtP", paste0(form.r[[i]], collapse=" "))) {
-    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="MgmtP"))
+  if(grepl("MgmtAbund", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 1), class="b", nlpar="MgmtAbund"))
   }
   if(grepl("MgmtZi", paste0(form.r[[i]], collapse=" "))) {
-    priors.r[[i]] <- c(priors.r[[i]], prior(normal(-1, 1), class="b", nlpar="MgmtZi"))
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 1), class="b", nlpar="MgmtZi"))
+  }
+  if(grepl("UpwellAbund", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 1), class="b", nlpar="UpwellAbund"))
+  }
+  if(grepl("UpwellZi", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 1), class="b", nlpar="UpwellZi"))
+  }
+  if(grepl("FullAbund", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 1), class="b", nlpar="FullAbund"))
+  }
+  if(grepl("FullZi", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 1), class="b", nlpar="FullZi"))
+  }
+  if(grepl("FullInteractionAbund", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 0.5), class="b", nlpar="FullInteractionAbund"))
+  }
+  if(grepl("FullInteractionZi", paste0(form.r[[i]], collapse=" "))) {
+    priors.r[[i]] <- c(priors.r[[i]], prior(normal(0, 0.5), class="b", nlpar="FullInteractionZi"))
   }
 }
 out.r <- map2(form.r, priors.r,
-                 ~brm(.x, data=rcrDens.df, cores=4, save_pars=save_pars(all=T), 
-                      family=zero_inflated_negbinomial(), control=list(adapt_delta=0.9),
-                      prior=.y))
+             ~brm(.x, data=rcrDens.df, cores=4, save_pars=save_pars(all=T), 
+                  family=zero_inflated_negbinomial(), control=list(adapt_delta=0.9),
+                  prior=.y))
 out.r <- map(out.r, ~add_criterion(.x, "loo", moment_match=T, cores=cores))
 loo.r <- map(out.r, ~loo(.x, cores=cores)) %>% loo_compare()
 saveRDS(loo.r, "out/regr/loo_r.rds")
 
 opt.r <- loo.r %>% as_tibble(rownames="model") %>% 
-  filter(elpd_diff > -4) %>%
-  arrange(model)
+  filter(elpd_diff > -2) %>%
+  mutate(model2=paste0("m", str_pad(str_sub(model, 2, -1), 2, "left", "0"))) %>%
+  arrange(model2)
 opt2.r <- loo.r %>% as_tibble(rownames="model") %>% 
   arrange(desc(as.numeric(elpd_diff)))
 
 saveRDS(out.r[[opt.r$model[1]]], "out/regr/opt_r.rds")
 saveRDS(out.r[[opt2.r$model[1]]], "out/regr/opt2_r.rds")
 saveRDS(out.r, "out/regr/all_r.rds")
-saveRDS(out.r$m4, "out/regr/full_r.rds")
+saveRDS(out.r$m10, "out/regr/full_r.rds")
 
 # out.r <- brm(bf(Juvenile ~ Adult + (1|Site),
 #                 zi ~ Adult + (1|Site)), 
@@ -314,7 +405,7 @@ saveRDS(out.r$m4, "out/regr/full_r.rds")
 
 
 rcrSize.df <- Growth_Surv %>% 
-  select(Site, Management, Patch, Monitoring, 
+  select(Site, Management, Upwelling, Patch, Monitoring, 
          Plant, Holdfast, Stipes, Total_Length) %>%
   left_join(., survey.i) %>%
   arrange(Site, Patch, Plant, Monitoring) %>%
@@ -329,7 +420,13 @@ form.r_z <- list(
   m1=bf(logHoldfast ~ 1 + (1|Site)),
   m2=bf(logHoldfast ~ Management),
   m3=bf(logHoldfast ~ Management + (1|Site)),
-  m4=bf(logHoldfast ~ Management + (1+Management|Site))
+  m4=bf(logHoldfast ~ Management + (1+Management|Site)),
+  m5=bf(logHoldfast ~ Upwelling + (1|Site)),
+  m6=bf(logHoldfast ~ Upwelling + (1+Upwelling|Site)),
+  m7=bf(logHoldfast ~ Upwelling + Management + (1|Site)),
+  m8=bf(logHoldfast ~ Upwelling + Management + (1+Upwelling+Management|Site)),
+  m9=bf(logHoldfast ~ Upwelling * Management + (1|Site)),
+  m10=bf(logHoldfast ~ Upwelling * Management + (1+Upwelling*Management|Site))
 )
 
 out.r_z <- map(form.r_z, 
@@ -340,8 +437,9 @@ loo.r_z <- map(out.r_z, ~loo(.x, cores=cores)) %>% loo_compare()
 saveRDS(loo.r_z, "out/regr/loo_r_z.rds")
 
 opt.r_z <- loo.r_z %>% as_tibble(rownames="model") %>% 
-  filter(elpd_diff > -4) %>%
-  arrange(model)
+  filter(elpd_diff > -2) %>%
+  mutate(model2=paste0("m", str_pad(str_sub(model, 2, -1), 2, "left", "0"))) %>%
+  arrange(model2)
 opt2.r_z <- loo.r_z %>% as_tibble(rownames="model") %>% 
   arrange(desc(as.numeric(elpd_diff)))
 
@@ -397,7 +495,9 @@ allom.df <- list(
                               Management=="AMERB" ~ "TURF")) %>%
   mutate(Site=str_to_lower(Site)) %>%
   mutate(Site2=factor(Site, levels=unique(Site)),
-         Site2=factor(Site2, labels=janitor::make_clean_names(levels(Site2))))
+         Site2=factor(Site2, labels=janitor::make_clean_names(levels(Site2))),
+         Upwelling=if_else(Zone=="North-Center", "Y", "N")) #%>%
+  # filter(!is.na(Upwelling))
 
 
 
@@ -409,9 +509,15 @@ form.hf_wt <- list(
   m1=bf(logWeight ~ logHoldfast + (1|Site2)),
   m2=bf(logWeight ~ logHoldfast + Management + (1|Site2)),
   m3=bf(logWeight ~ logHoldfast * Management + (1|Site2)),
-  m4=bf(logWeight ~ logHoldfast + (1+logHoldfast|Site2)),
-  m5=bf(logWeight ~ logHoldfast + Management + (1 + logHoldfast + Management|Site2)),
-  m6=bf(logWeight ~ logHoldfast * Management + (1 + logHoldfast * Management|Site2))
+  # m4=bf(logWeight ~ logHoldfast + Upwelling + (1|Site2)),
+  # m5=bf(logWeight ~ logHoldfast * Upwelling + (1|Site2)),
+  m6=bf(logWeight ~ logHoldfast + (1+logHoldfast|Site2)),
+  m7=bf(logWeight ~ logHoldfast + Management + (1 + logHoldfast + Management|Site2)),
+  m8=bf(logWeight ~ logHoldfast * Management + (1 + logHoldfast * Management|Site2))#,
+  # m9=bf(logWeight ~ logHoldfast + Upwelling + (1 + logHoldfast + Upwelling|Site2)),
+  # m10=bf(logWeight ~ logHoldfast * Upwelling + (1 + logHoldfast * Upwelling|Site2)),
+  # m11=bf(logWeight ~ logHoldfast + Management + Upwelling + (1 |Site2)),
+  # m12=bf(logWeight ~ logHoldfast * Management * Upwelling + (1 |Site2))
 )
 
 out.hf_wt <- map(form.hf_wt, 
@@ -422,10 +528,13 @@ loo.hf_wt <- map(out.hf_wt, ~loo(.x, cores=cores)) %>% loo_compare()
 saveRDS(loo.hf_wt, "out/regr/loo_allom_hw.rds")
 
 opt.hf_wt <- loo.hf_wt %>% as_tibble(rownames="model") %>% 
-  filter(elpd_diff > -4) %>%
-  arrange(model)
+  filter(elpd_diff > -2) %>%
+  mutate(model2=paste0("m", str_pad(str_sub(model, 2, -1), 2, "left", "0"))) %>%
+  arrange(model2)
 opt2.hf_wt <- loo.hf_wt %>% as_tibble(rownames="model") %>% 
   arrange(desc(as.numeric(elpd_diff)))
+
+# No support for upwelling, so re-fit using all data, where m1 is best
 
 saveRDS(out.hf_wt[[opt.hf_wt$model[1]]], "out/regr/opt_allom_hw.rds")
 saveRDS(out.hf_wt[[opt2.hf_wt$model[1]]], "out/regr/opt2_allom_hw.rds")
