@@ -165,7 +165,8 @@ grow.df <- Growth_Surv %>%
          annStipeGrowth=(nextStipes-Stipes)/days_to_nextObs*365,
          annLengthGrowth=(nextLength-Total_Length)/days_to_nextObs*365,
          nextHoldfastAnnual=Holdfast+annHoldfastGrowth,
-         logNextHoldfastAnnual=log(nextHoldfastAnnual))
+         logNextHoldfastAnnual=log(nextHoldfastAnnual)) %>%
+  filter(logHoldfast > -2) # outlier in OA non-upwelling with huge weight
 
 form.g <- list(
   m1=bf(logNextHoldfastAnnual ~ logHoldfast + (1|Site/Patch/Plant)),
@@ -199,7 +200,8 @@ opt.g <- loo.g %>% as_tibble(rownames="model") %>%
 opt2.g <- loo.g %>% as_tibble(rownames="model") %>% 
   arrange(desc(as.numeric(elpd_diff)))
 
-saveRDS(out.g[[opt.g$model[1]]], "out/regr/opt_g.rds")
+# saveRDS(out.g[[opt.g$model[1]]], "out/regr/opt_g.rds")
+saveRDS(out.g$m8, "out/regr/opt_g.rds")
 saveRDS(out.g[[opt2.g$model[1]]], "out/regr/opt2_g.rds")
 saveRDS(out.g, "out/regr/all_g.rds")
 saveRDS(out.g$m10, "out/regr/full_g.rds")

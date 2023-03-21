@@ -12,7 +12,7 @@ library(doParallel); library(foreach)
 source("code/00_fn.R")
 
 reg.dir <- "out/regr/"
-nSim <- 200
+nSim <- 100
 cores <- 70
 N.init_rcr <- 5
 rcr_max <- 100
@@ -124,7 +124,7 @@ for(s in 1:nrow(s_DD.df)) {
             map_dfr(pop.ls, 
                     ~do.call('rbind', .x) %>%
                       mutate(sim=i,
-                             s_DD_i=s,
+                             s_DD_i=s_DD.df$s_DD_i[s],
                              s_DD=dd.i$s_DD, 
                              s_DD_pow=dd.i$s_DD_pow,
                              size=exp(size_ln),

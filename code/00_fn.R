@@ -197,7 +197,8 @@ build_IPM2 <- function(par.ls, mesh.ls) {
       formula=s*G,
       family="CC",
       G=dnorm(z_2, mu_g, sd_g),
-      mu_g=b.g[1] + b.g[2]*z_1 + b.g[3]*(mgmt=="TURF") + b.g[4]*(upwell=="Y"),
+      # mu_g=b.g[1] + b.g[2]*z_1 + b.g[3]*(mgmt=="TURF") + b.g[4]*(upwell=="Y"),
+      mu_g=b.g[1] + b.g[2]*z_1 + b.g[3]*(upwell=="Y") + b.g[4]*z_1*(upwell=="Y"),
       b.g=fixef(out_g, summary=F)[draw,],
       sd_g=c(as.matrix(out_g, variable="sigma", draw=draw)),
       s=plogis(b.s[1] + b.s[2]*z_1 + b.s[3]*(mgmt=="TURF") + b.s[4]*(upwell=="Y") + 
