@@ -12,19 +12,22 @@ library(doParallel); library(foreach)
 source("code/00_fn.R")
 
 reg.dir <- "out/regr/"
-nSim <- 100
+nSim <- 500
 cores <- 70
 N.init_rcr <- 5
 rcr_max <- 100
 # s_DD * Area^s_DD_pow
-s_DD.df <- map_dfr(seq(0.5, 1, length.out=4), 
-                   ~tibble(s_DD=seq(-exp(seq(log(0.01), log(0.00025), length.out=length(.x))), 
-                                    0, length.out=10),
-                           s_DD_pow=.x) %>%
-                     mutate(s_DD_i=row_number())) %>%
+nPow <- 5
+s_DD.pars <- list(pow=seq(0.5, 1, length.out=nPow),
+                  low_lim=-exp(seq(log(0.01), log(0.0025), length.out=nPow)))
+s_DD.df <- map2_dfr(s_DD.pars$pow, s_DD.pars$low_lim,
+                    ~tibble(s_DD=seq(.y, 0, length.out=20),
+                            s_DD_pow=.x) %>%
+                      mutate(s_DD_i=row_number())) %>%
   mutate(pow.dir=glue("out/dd_tune_pow_{s_DD_pow}/"),
          out.dir=glue("{pow.dir}sdd-{str_pad(s_DD_i, 2, 'left', '0')}"))
 ipm.scenarios <- expand_grid(mgmt=c("OA", "TURF"), upwell=c("N", "Y"))
+post_draw <- sample.int(4000, nSim)
 
 
 
@@ -53,7 +56,7 @@ for(s in 1:nrow(s_DD.df)) {
   cl <- makeCluster(cores)
   registerDoParallel(cl)
   foreach(i=1:nSim,
-          .export=c("reg.dir", "ipm.scenarios", "s_DD.df", "dd.i", "s"),
+          .export=c("reg.dir", "ipm.scenarios", "s_DD.df", "dd.i", "s", "post_draw"),
           .packages=c("tidyverse", "glue", "brms", "ipmr", "doParallel"), 
           .combine="c",
           .errorhandling="pass") %dopar% {
@@ -69,7 +72,7 @@ for(s in 1:nrow(s_DD.df)) {
               out_r_z=readRDS(glue("{reg.dir}opt_r_z.rds")),
               s_DD=dd.i$s_DD,
               s_DD_pow=dd.i$s_DD_pow,
-              draw=i,
+              draw=post_draw[i],
               adultThresh=10,
               rcr_max=dd.i$rcr_max
             )
