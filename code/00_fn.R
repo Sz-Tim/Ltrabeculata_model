@@ -241,7 +241,7 @@ build_IPM2 <- function(par.ls, mesh.ls) {
 
 
 
-calc_new_recruits <- function(ipm, pars, z_2) {
+calc_new_recruits <- function(ipm, pars, z_2, adult_i) {
   nRcr_k <- min(pars$rcr_max, 
                 posterior_predict(
                   pars$out_r, re.form=NA, draw_ids=pars$draw,

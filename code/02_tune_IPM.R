@@ -113,7 +113,7 @@ for(s in 1:nrow(s_DD.df)) {
                 }
                 
                 # Ipmlement recruitment
-                ipm.j$pop_state$n_z[,2] <- calc_new_recruits(ipm.j, pars.j, size_ln)
+                ipm.j$pop_state$n_z[,2] <- calc_new_recruits(ipm.j, pars.j, size_ln, adult_i)
 
                 pop.ls[[j]][[k]] <- tibble(year=k,
                                            size_ln=mesh_info$z_1[1:mesh.ls$n_mesh_p],
