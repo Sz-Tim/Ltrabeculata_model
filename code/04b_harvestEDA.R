@@ -8,7 +8,6 @@
 
 library(tidyverse)
 library(glue); library(brms); library(ipmr)
-library(doParallel); library(foreach)
 source("code/00_fn.R")
 
 reg.dir <- "out/regr/"
@@ -19,14 +18,12 @@ h_i <- read_csv("data/harvest_i.csv")
 
 # load output -------------------------------------------------------------
 
-out.f <- map(dir("out", "_H"), ~dir(glue("out/{.x}/"), "H_.*rds", 
+out.f <- map(dir("out", "_H"), ~dir(glue("out/{.x}/"), "harvest_.*rds", 
                                     recursive=T, full.names=T)) %>%
   unlist
 H.df <- map_dfr(out.f, ~readRDS(.x) %>% mutate(fname=.x)) %>% 
   mutate(scenario=str_sub(fname, 8, 9)) %>%
-  left_join(., h_i, by="scenario") %>%
-  group_by(sim, scenario, Management) %>%
-  mutate(Htot=cumsum(H_grams))
+  left_join(., h_i, by="scenario")
 
 out.f <- map(dir("out", "_H"), ~dir(glue("out/{.x}/"), "pop_.*rds", 
                                     recursive=T, full.names=T)) %>%
@@ -38,33 +35,67 @@ pop.df <- map_dfr(out.f, ~readRDS(.x) %>% mutate(fname=.x)) %>%
 
 
 H.df %>%
-  mutate(Htot=Htot/1e3) %>%
-  # mutate(Htot=log1p(Htot)) %>%
-  group_by(scenario, Management, year, description) %>%
-  summarise(Htot_mn=median(Htot),
-            Htot_lo=quantile(Htot, probs=0.25),
-            Htot_hi=quantile(Htot, probs=0.75)) %>%
-  ggplot(aes(year, Htot_mn, ymin=Htot_lo, ymax=Htot_hi, colour=Management, fill=Management)) + 
+  mutate(H_cumul=H_cumul/1e3) %>%
+  # mutate(H_cumul=log1p(H_cumul)) %>%
+  group_by(scenario, Upwelling, Management, year, description) %>%
+  summarise(H_cumul_mn=median(H_cumul),
+            H_cumul_lo=quantile(H_cumul, probs=0.25),
+            H_cumul_hi=quantile(H_cumul, probs=0.75)) %>%
+  ggplot(aes(year, H_cumul_mn, ymin=H_cumul_lo, ymax=H_cumul_hi, colour=Management, fill=Management)) + 
   geom_line() + 
   geom_ribbon(colour=NA, alpha=0.5) +
-  facet_wrap(~description)
+  facet_grid(Upwelling~description)
 
 H.df %>%
-  mutate(Htot=Htot/1e3) %>%
-  # mutate(Htot=log1p(Htot)) %>%
-  group_by(scenario, Management, year, description) %>%
-  summarise(Htot_mn=median(Htot),
-            Htot_lo=quantile(Htot, probs=0.25),
-            Htot_hi=quantile(Htot, probs=0.75)) %>%
-  ggplot(aes(year, Htot_mn, ymin=Htot_lo, ymax=Htot_hi, colour=description, fill=description)) + 
+  mutate(H_cumul=H_cumul/1e3) %>%
+  # mutate(H_cumul=log1p(H_cumul)) %>%
+  group_by(scenario, Upwelling, Management, year, description) %>%
+  summarise(H_cumul_mn=median(H_cumul),
+            H_cumul_lo=quantile(H_cumul, probs=0.25),
+            H_cumul_hi=quantile(H_cumul, probs=0.75)) %>%
+  ggplot(aes(year, H_cumul_mn, ymin=H_cumul_lo, ymax=H_cumul_hi, colour=description, fill=description)) + 
   geom_line() + 
   geom_ribbon(colour=NA, alpha=0.5) +
-  facet_wrap(~Management)
+  scale_colour_brewer(type="qual", palette="Paired") +
+  scale_fill_brewer(type="qual", palette="Paired") +
+  facet_grid(Upwelling~Management)
 
 pop.df %>%
-  group_by(scenario, description, sim, Management, stage, year) %>%
-  summarise(N=sum(N), 
-            wt=sum(N*exp(weightClass_ln)/1e3))
+  group_by(scenario, description, sim, Upwelling, Management, stage, year) %>%
+  summarise(N=log(sum(N))) %>%
+  group_by(scenario, description, Upwelling, Management, stage, year) %>%
+  summarise(N=exp(mean(N))) %>%
+  ungroup() %>%
+  # mutate(N=if_else(N < 0.1, 0.01, N)) %>%
+  ggplot(aes(year, N, fill=stage)) +
+  geom_bar(stat="identity", position="fill") + 
+  # scale_y_log10() +
+  facet_grid(Management*Upwelling~description, scales="free_y")
+
+pop.df %>%
+  group_by(scenario, description, sim, Upwelling, Management, stage, year) %>%
+  summarise(N=log(sum(N))) %>%
+  group_by(scenario, description, Upwelling, Management, stage, year) %>%
+  summarise(N=exp(mean(N))) %>%
+  ungroup() %>%
+  # mutate(N=if_else(N < 0.1, 0.01, N)) %>%
+  ggplot(aes(year, N, colour=stage, linetype=Upwelling)) +
+  geom_line() + 
+  # scale_y_log10() +
+  facet_grid(Management~description, scales="free_y")
+
+pop.df %>%
+  group_by(scenario, description, sim, Upwelling, Management, sizeClass, year) %>%
+  summarise(N=log(sum(N))) %>%
+  group_by(scenario, description, Upwelling, Management, sizeClass, year) %>%
+  summarise(N=exp(mean(N))) %>%
+  ungroup() %>%
+  # mutate(N=if_else(N < 0.1, 0.01, N)) %>%
+  ggplot(aes(year, N, colour=sizeClass, linetype=Upwelling)) +
+  geom_line() + 
+  scale_fill_viridis_d() +
+  # scale_y_log10() +
+  facet_grid(Management~description, scales="free_y")
 
 
 # 

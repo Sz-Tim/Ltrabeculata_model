@@ -12,20 +12,26 @@ library(doParallel); library(foreach)
 source("code/00_fn.R")
 
 reg.dir <- "out/regr/"
-h_i <- read_csv("data/harvest_i.csv")
-cores <- 10
-s_DD <- 1e-4
-s_DD_pow <- 1
-nYrs <- 30
-
+h_i <- read_csv("data/harvest_i.csv")[1:3,]
+N.init_rcr <- 5
 
 
 
 # simulation settings -----------------------------------------------------
 
-nSim <- 50
+cores <- 70
+s_DD <- -0.000789
+s_DD_pow <- 1
+rcr_max <- 100
+nYrs <- 30
+nSim <- 1000
+
+
+
+# run simulations ---------------------------------------------------------
+
+ipm.scenarios <- expand_grid(mgmt=c("OA", "TURF"), upwell=c("N", "Y"))
 post_draw <- sample.int(4000, nSim)
-N.init_rcr <- 5
 
 for(h in 1:nrow(h_i)) {
   
@@ -40,7 +46,8 @@ for(h in 1:nrow(h_i)) {
     H_prop=h_i$H_prop[h],
     s_DD=s_DD,
     s_DD_pow=s_DD_pow,
-    ndraws=1
+    ndraws=1,
+    rcr_max=rcr_max
   )
   mesh.ls=list(
     L=sim.i$size_rng[1],
@@ -59,112 +66,105 @@ for(h in 1:nrow(h_i)) {
           .combine="c") %dopar% {
             
             source("code/00_fn.R")
-            out.g <- readRDS(glue("{reg.dir}opt_g.rds"))
-            out.s <- readRDS(glue("{reg.dir}opt_s.rds"))
-            out.r <- readRDS(glue("{reg.dir}opt_r.rds"))
-            out.r_z <- readRDS(glue("{reg.dir}opt_r_z.rds"))
             out.hf_wt <- readRDS(glue("{reg.dir}opt_allom_hw.rds"))
             
             ipmPar.ls <- list(
-              out_g=out.g,
-              out_s=out.s,
+              out_g=readRDS(glue("{reg.dir}opt_g.rds")),
+              out_s=readRDS(glue("{reg.dir}opt_s.rds")),
+              out_r=readRDS(glue("{reg.dir}opt_r.rds")),
+              out_r_z=readRDS(glue("{reg.dir}opt_r_z.rds")),
               s_DD=sim.i$s_DD,
               s_DD_pow=sim.i$s_DD_pow,
-              out_r=out.r,
-              out_r_z=out.r_z,
               draw=post_draw[i],
-              adultThresh=10
+              adultThresh=10,
+              rcr_max=sim.i$rcr_max
             )
             
-            lam.df <- tibble(year=1:sim.i$nYrs, 
-                             OA=NA,
-                             TURF=NA)
-            pop.ls <- vector("list", length=sim.i$nYrs)
-            H.df <- tibble(year=1:sim.i$nYrs, 
-                           OA=0,
-                           TURF=0)
+            pop.ls <- map(1:nrow(ipm.scenarios), ~vector("list", length=sim.i$nYrs))
+            H.ls <- vector("list", nrow(ipm.scenarios))
             
             N.init <- dnorm(seq(mesh.ls$L+0.125, mesh.ls$U-0.125, length.out=mesh.ls$n_mesh_p),
-                            colMeans(posterior_linpred(out.r_z, re.form=NA, newdata=tibble(x=1))), 
-                            colMeans(as.matrix(out.r_z, variable="sigma"))
-                            ) * N.init_rcr
+                            colMeans(posterior_linpred(ipmPar.ls$out_r_z, re.form=NA, newdata=tibble(x=1))), 
+                            colMeans(as.matrix(ipmPar.ls$out_r_z, variable="sigma"))
+            ) 
+            N.init <- N.init/sum(N.init) * N.init_rcr
             
-            ipm.OA <- build_IPM(c(ipmPar.ls, mgmt="OA"), mesh.ls)
-            ipm.TURF <- build_IPM(c(ipmPar.ls, mgmt="TURF"), mesh.ls)
-            N.OA <- N.init
-            N.TURF <- N.init
-            
-            for(j in 1:sim.i$nYrs) {
-              if(j > 1 & j %% sim.i$H_freq == 0) {
-                size_H <- which(between(size, sim.i$H_sizeMin, sim.i$H_sizeMax))
-                H.df$OA[j] <- sum(N.OA[size_H] * wtClass[size_H] * sim.i$H_prop)
-                H.df$TURF[j] <- sum(N.TURF[size_H] * wtClass[size_H] * sim.i$H_prop)
-                N.OA[size_H] <- N.OA[size_H] * (1-sim.i$H_prop)
-                N.TURF[size_H] <- N.TURF[size_H] * (1-sim.i$H_prop)
+            # ipm scenarios -----------------------------------------------
+            for(j in 1:nrow(ipm.scenarios)) {
+              pars.j <- c(ipmPar.ls,
+                          mgmt=ipm.scenarios$mgmt[j],
+                          upwell=ipm.scenarios$upwell[j])
+              ipm_init <- build_IPM2(pars.j, mesh.ls)
+              N <- N.init
+              H <- rep(0, sim.i$nYrs)
+              
+              for(k in 1:sim.i$nYrs) {
+                if(k > 1 & k %% sim.i$H_freq == 0) {
+                  size_H <- which(between(size, sim.i$H_sizeMin, sim.i$H_sizeMax))
+                  H[k] <- sum(N[size_H] * wtClass[size_H] * sim.i$H_prop)
+                  N[size_H] <- N[size_H] * (1-sim.i$H_prop)
+                }
+                
+                # Implement growth and survival
+                ipm.j <- ipm_init %>%
+                  define_pop_state(n_z=N) %>%
+                  make_ipm(iterate=TRUE, iterations=1)
+                
+                if(k==1) {
+                  mesh_info <- int_mesh(ipm.j)
+                  size_ln <- mesh_info$z_1[1:mesh.ls$n_mesh_p]
+                  size <- exp(size_ln)
+                  juv_i <- which(size < pars.j$adultThresh)
+                  adult_i <- which(size >= pars.j$adultThresh)
+                  wtClass_ln=c(posterior_epred(out.hf_wt, 
+                                               newdata=tibble(logHoldfast=size_ln), 
+                                               re_formula=NA, draw_ids=ipmPar.ls$draw))
+                  wtClass <- exp(wtClass_ln)
+                }
+                
+                # Ipmlement recruitment
+                ipm.j$pop_state$n_z[,2] <- calc_new_recruits(ipm.j, pars.j, size_ln, adult_i)
+                
+                pop.ls[[j]][[k]] <- tibble(year=k,
+                                           size_ln=mesh_info$z_1[1:mesh.ls$n_mesh_p],
+                                           N=c(ipm.j$pop_state$n_z[,2]),
+                                           Management=ipm.scenarios$mgmt[j],
+                                           Upwelling=ipm.scenarios$upwell[j])
+                N <- c(ipm.j$pop_state$n_z[,2])
               }
-              OA.j <- ipm.OA %>% 
-                define_pop_state(n_z=N.OA) %>% 
-                make_ipm(iterate=TRUE, iterations=1)
-              TURF.j <- ipm.TURF %>% 
-                define_pop_state(n_z=N.TURF) %>% 
-                make_ipm(iterate=TRUE, iterations=1)
-              
-              if(j==1) {
-                mesh_info <- int_mesh(OA.j)
-                size_ln <- mesh_info$z_1[1:mesh.ls$n_mesh_p]
-                size <- exp(size_ln)
-                wtClass_ln=c(posterior_epred(out.hf_wt, 
-                                             newdata=tibble(logHoldfast=size_ln), 
-                                             re_formula=NA, draw_ids=ipmPar.ls$draw))
-                wtClass <- exp(wtClass_ln)
-              }
-              
-              lam.df$OA[j] <- c(lambda(OA.j))
-              lam.df$TURF[j] <- c(lambda(TURF.j))
-              
-              pop.ls[[j]] <- bind_rows(
-                tibble(year=j,
-                       size_ln=size_ln,
-                       N=c(OA.j$pop_state$n_z[,2]),
-                       Management="OA"),
-                tibble(year=j,
-                       size_ln=size_ln,
-                       N=c(TURF.j$pop_state$n_z[,2]),
-                       Management="TURF")
-              )
-              N.OA <- c(OA.j$pop_state$n_z[,2])
-              N.TURF <- c(TURF.j$pop_state$n_z[,2])
+              H.ls[[j]] <- tibble(year=1:sim.i$nYrs,
+                                  H=H,
+                                  Management=ipm.scenarios$mgmt[j],
+                                  Upwelling=ipm.scenarios$upwell[j])
             }
             
-            lam.df %>%
-              pivot_longer(2:3, names_to="Management", values_to="lambda") %>%
-              mutate(sim=i, 
-                     scenario=h) %>%
-              saveRDS(glue("{h_i$outDir[h]}/lambda_{i}.rds"))
-            H.df %>%
-              pivot_longer(2:3, names_to="Management", values_to="H_grams") %>%
-              mutate(sim=i, 
-                     scenario=h) %>%
-              saveRDS(glue("{h_i$outDir[h]}/H_{i}.rds"))
-            pop.df <- pop.ls %>% 
-              do.call('rbind', .) %>%
-              mutate(sim=i, 
-                     scenario=h,
-                     size=exp(size_ln),
-                     stage=if_else(size>10, "Adult", "Juvenile"),
-                     sizeClass=case_when(size < 10 ~ "0-10",
-                                         between(size, 10, 20) ~ "10-20",
-                                         between(size, 20, 30) ~ "20-30",
-                                         between(size, 30, 40) ~ "30-40",
-                                         between(size, 40, 50) ~ "40-50",
-                                         size > 50 ~ "50+"))
-            pop.df <- pop.df %>%
+            pop.df <- map_dfr(pop.ls, 
+                              ~do.call('rbind', .x) %>%
+                                mutate(sim=i,
+                                       scenario=h,
+                                       s_DD=sim.i$s_DD, 
+                                       s_DD_pow=sim.i$s_DD_pow,
+                                       size=exp(size_ln),
+                                       stage=if_else(size>10, "Adult", "Juvenile"),
+                                       sizeClass=case_when(size < 10 ~ "0-10",
+                                                           between(size, 10, 20) ~ "10-20",
+                                                           between(size, 20, 30) ~ "20-30",
+                                                           between(size, 30, 40) ~ "30-40",
+                                                           between(size, 40, 50) ~ "40-50",
+                                                           size > 50 ~ "50+")))
+            pop.df %>%
               mutate(weightClass_ln=c(posterior_epred(out.hf_wt, 
                                                       newdata=pop.df %>% rename(logHoldfast=size_ln), 
-                                                      re_formula=NA, draw_ids=ipmPar.ls$draw)))
-            
-            saveRDS(pop.df, glue("{h_i$outDir[h]}/pop_{i}.rds"))
-            
+                                                      re_formula=NA, draw_ids=ipmPar.ls$draw))) %>%
+              saveRDS(glue("{h_i$outDir[h]}/pop_{i}.rds"))
+            do.call('rbind', H.ls) %>%
+              mutate(H_cumul=cumsum(H), 
+                     scenario=h,
+                     sim=i,
+                     s_DD=sim.i$s_DD, 
+                     s_DD_pow=sim.i$s_DD_pow) %>%
+            saveRDS(glue("{h_i$outDir[h]}/harvest_{i}.rds"))
+       
             paste("Finished", i)
           }
   stopCluster(cl)
