@@ -1,7 +1,19 @@
 "scenario","description","outDir","H_sizeMin","H_sizeMax","H_freq","H_prop"
-"01","clear cut: 2 yr return", "out/1_H01/",-Inf,Inf,2,0.95
-"02","clear cut: 4 yr return", "out/2_H02/",-Inf,Inf,4,0.95
-"03","clear cut: 6 yr return", "out/3_H03/",-Inf,Inf,6,0.95
-"04","adults only: 2 yr return", "out/4_H04/",10,Inf,2,0.95
-"05","adults only: 4 yr return", "out/5_H05/",10,Inf,4,0.95
-"06","adults only: 6 yr return", "out/6_H06/",10,Inf,6,0.95
+"01","all sizes: 2 yr return, 100%", "out/H01/",-Inf,Inf,2,1
+"02","all sizes: 4 yr return, 100%", "out/H02/",-Inf,Inf,4,1
+"03","all sizes: 6 yr return, 100%", "out/H03/",-Inf,Inf,6,1
+"04","adults only: 2 yr return, 100%", "out/H04/",10,Inf,2,1
+"05","adults only: 4 yr return, 100%", "out/H05/",10,Inf,4,1
+"06","adults only: 6 yr return, 100%", "out/H06/",10,Inf,6,1
+"07","all sizes: 2 yr return, 80%", "out/H07/",-Inf,Inf,2,0.8
+"08","all sizes: 4 yr return, 80%", "out/H08/",-Inf,Inf,4,0.8
+"09","all sizes: 6 yr return, 80%", "out/H09/",-Inf,Inf,6,0.8
+"10","adults only: 2 yr return, 80%", "out/H10/",10,Inf,2,0.8
+"11","adults only: 4 yr return, 80%", "out/H11/",10,Inf,4,0.8
+"12","adults only: 6 yr return, 80%", "out/H12/",10,Inf,6,0.8
+"13","all sizes: 2 yr return, 50%", "out/H13/",-Inf,Inf,2,0.5
+"14","all sizes: 4 yr return, 50%", "out/H14/",-Inf,Inf,4,0.5
+"15","all sizes: 6 yr return, 50%", "out/H15/",-Inf,Inf,6,0.5
+"16","adults only: 2 yr return, 50%", "out/H16/",10,Inf,2,0.5
+"17","adults only: 4 yr return, 50%", "out/H17/",10,Inf,4,0.5
+"18","adults only: 6 yr return, 50%", "out/H18/",10,Inf,6,0.5
